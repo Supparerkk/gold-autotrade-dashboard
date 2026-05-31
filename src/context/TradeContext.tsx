@@ -101,7 +101,7 @@ export async function secureFetch(url: string, options: RequestInit = {}): Promi
   // 2. Add X-Webhook-Secret header automatically from secureGet for internal or n8n calls
   const secret = secureGet('webhookSecret');
   const headers = new Headers(options.headers || {});
-  const isInternalOrWebhook = url.startsWith('/api/') || url.includes('n8n.goldautotrader.cloud');
+  const isInternalOrWebhook = url.startsWith('/api/trade/') || url.includes('n8n.goldautotrader.cloud');
   
   if (secret && isInternalOrWebhook) {
     headers.set('X-Webhook-Secret', secret);
@@ -187,7 +187,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     try {
-      const res = await secureFetch('https://open.er-api.com/v6/latest/USD');
+      const res = await secureFetch('/api/market/rate');
       if (!res) throw new Error('Failed to fetch exchange rate');
       const data = await res.json();
       const rate = data.rates?.THB;
@@ -366,7 +366,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance PAXG/USDT price and stats
   const fetchBinanceTicker = useCallback(async () => {
     try {
-      const res = await secureFetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
+      const res = await secureFetch('/api/market/ticker');
       if (!res) throw new Error('Binance API response error');
       const data = await res.json();
       setGoldPrice(parseFloat(data.lastPrice));
@@ -379,7 +379,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance Candlestick Klines (24h of 1h candles)
   const fetchBinanceKlines = useCallback(async () => {
     try {
-      const res = await secureFetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
+      const res = await secureFetch('/api/market/klines');
       if (!res) throw new Error('Binance Klines API error');
       const data = await res.json();
       const formatted: KLine[] = data.map((item: any) => {
