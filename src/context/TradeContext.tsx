@@ -212,7 +212,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
             timestamp: d.opened_at,
             opened_at: d.opened_at,
             closed_at: d.closed_at,
-            symbol: d.symbol || 'PAXGUSDT',
+            symbol: d.symbol || 'BTCUSDT',
             direction: d.direction,
             entry_price: Number(d.entry_price),
             sl_price: Number(d.sl_price),
@@ -274,7 +274,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance PAXG/USDT price and stats
   const fetchBinanceTicker = useCallback(async () => {
     try {
-      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
+      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
       if (!res.ok) throw new Error('Binance API response error');
       const data = await res.json();
       setGoldPrice(parseFloat(data.lastPrice));
@@ -287,7 +287,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance Candlestick Klines (24h of 1h candles)
   const fetchBinanceKlines = useCallback(async () => {
     try {
-      const res = await fetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
+      const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=24');
       if (!res.ok) throw new Error('Binance Klines API error');
       const data = await res.json();
       const formatted: KLine[] = data.map((item: any) => {
@@ -448,7 +448,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     const tp2_percent = Math.abs(params.tp2_price - params.entry_price) / params.entry_price * 100;
 
     const payload = {
-      symbol: 'PAXGUSDT',
+      symbol: 'BTCUSDT',
       direction: params.direction,
       entry_price: params.entry_price,
       sl_percent: parseFloat(sl_percent.toFixed(2)),
@@ -594,7 +594,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
     const payload = {
       action: 'CLOSE',
-      symbol: 'PAXGUSDT',
+      symbol: 'BTCUSDT',
       direction: activePosition.direction,
       entry_price: activePosition.entry_price,
       exit_price: currentPrice,
