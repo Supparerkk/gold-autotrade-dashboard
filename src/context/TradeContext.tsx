@@ -142,30 +142,48 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Load Settings
   const loadSettings = useCallback(async () => {
     try {
+      let loadedSettings: Partial<Settings> = {};
+
       if (isSupabaseConfigured && supabase) {
         const { data, error } = await supabase
           .from('dashboard_settings')
           .select('key, value');
         
         if (!error && data && data.length > 0) {
-          const loaded: Partial<Settings> = {};
           data.forEach((item) => {
             try {
-              loaded[item.key as keyof Settings] = JSON.parse(item.value);
+              loadedSettings[item.key as keyof Settings] = JSON.parse(item.value);
             } catch {
-              loaded[item.key as keyof Settings] = item.value as any;
+              loadedSettings[item.key as keyof Settings] = item.value as any;
             }
           });
-          setSettings((prev) => ({ ...prev, ...loaded }));
-          return;
+        }
+      } else {
+        // Local Storage fallback
+        const local = localStorage.getItem('gold_trade_settings');
+        if (local) {
+          try {
+            loadedSettings = JSON.parse(local);
+          } catch (e) {
+            console.error('Failed to parse local settings:', e);
+          }
         }
       }
 
-      // Local Storage fallback
-      const local = localStorage.getItem('gold_trade_settings');
-      if (local) {
-        setSettings(JSON.parse(local));
+      // Merge and sanitize any legacy BTC settings to Gold
+      const merged = { ...defaultSettings, ...loadedSettings };
+      
+      if (typeof merged.webhookExecutePath === 'string' && merged.webhookExecutePath.includes('btc')) {
+        merged.webhookExecutePath = merged.webhookExecutePath.replace('btc', 'gold');
       }
+      if (typeof merged.webhookClosePath === 'string' && merged.webhookClosePath.includes('btc')) {
+        merged.webhookClosePath = merged.webhookClosePath.replace('btc', 'gold');
+      }
+      if (typeof merged.webhookStatusPath === 'string' && merged.webhookStatusPath.includes('btc')) {
+        merged.webhookStatusPath = merged.webhookStatusPath.replace('btc', 'gold');
+      }
+
+      setSettings(merged);
     } catch (err) {
       console.error('Failed to load settings:', err);
     }
