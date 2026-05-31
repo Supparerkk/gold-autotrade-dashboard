@@ -78,7 +78,7 @@ export default function MarketOverview() {
       <div className="flex items-start justify-between">
         <div>
           <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">
-            Bitcoin (BTC) / USDT Spot (Binance)
+            Gold (PAXG) / USDT Spot (Binance)
           </span>
           <div className="mt-1 flex items-baseline gap-3">
             <h2
