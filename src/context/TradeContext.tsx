@@ -72,14 +72,14 @@ interface TradeContextType {
 }
 
 const defaultSettings: Settings = {
-  n8nBaseUrl: 'http://localhost:5678',
+  n8nBaseUrl: 'https://n8n.goldautotrader.cloud',
   webhookExecutePath: '/webhook/gold-trade-execute',
   webhookClosePath: '/webhook/gold-trade-close',
   webhookStatusPath: '/webhook/gold-position-status',
   telegramEnabled: false,
   manualExchangeRate: 36.5,
   useManualExchangeRate: false,
-  isSimulatedMode: true, // Default to true for sandbox experience out of the box
+  isSimulatedMode: false, // Default to false to connect to your live Hostinger n8n instance
 };
 
 const TradeContext = createContext<TradeContextType | undefined>(undefined);
