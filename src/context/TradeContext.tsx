@@ -98,13 +98,17 @@ export async function secureFetch(url: string, options: RequestInit = {}): Promi
     return null;
   }
 
-  // 2. Add X-Webhook-Secret header automatically from secureGet
+  // 2. Add X-Webhook-Secret header automatically from secureGet for internal or n8n calls
   const secret = secureGet('webhookSecret');
   const headers = new Headers(options.headers || {});
-  if (secret) {
+  const isInternalOrWebhook = url.startsWith('/api/') || url.includes('n8n.goldautotrader.cloud');
+  
+  if (secret && isInternalOrWebhook) {
     headers.set('X-Webhook-Secret', secret);
   }
-  if (!headers.has('Content-Type')) {
+  
+  const method = (options.method || 'GET').toUpperCase();
+  if (isInternalOrWebhook && method !== 'GET' && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
