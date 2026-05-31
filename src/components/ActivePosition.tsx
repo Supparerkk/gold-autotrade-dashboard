@@ -9,6 +9,9 @@ export default function ActivePosition() {
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  const [showConfirm, setShowConfirm] = useState<boolean>(false);
+  const [cooldown, setCooldown] = useState<boolean>(false);
+
   if (!activePosition) {
     return (
       <div className="flex h-full min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/20 p-8 text-center backdrop-blur-xl">
@@ -65,17 +68,25 @@ export default function ActivePosition() {
     }
   };
 
-  const handleClose = async () => {
-    if (confirm('Are you sure you want to close this position at market price?')) {
-      setIsClosing(true);
-      setFeedback(null);
-      const res = await closeActivePosition();
-      setIsClosing(false);
-      if (res.success) {
-        setFeedback({ type: 'success', message: res.message });
-      } else {
-        setFeedback({ type: 'error', message: res.message });
-      }
+  const handleClose = () => {
+    setShowConfirm(true);
+  };
+
+  const handleConfirmClose = async () => {
+    setShowConfirm(false);
+    setIsClosing(true);
+    setFeedback(null);
+    const res = await closeActivePosition();
+    setIsClosing(false);
+    
+    // 3-second button cooldown guard
+    setCooldown(true);
+    setTimeout(() => setCooldown(false), 3000);
+
+    if (res.success) {
+      setFeedback({ type: 'success', message: res.message });
+    } else {
+      setFeedback({ type: 'error', message: res.message });
     }
   };
 
@@ -129,10 +140,16 @@ export default function ActivePosition() {
 
         <button
           onClick={handleClose}
-          disabled={isClosing}
-          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 px-6 font-semibold text-white shadow-lg transition-all duration-300 hover:from-rose-500 hover:to-pink-500 hover:shadow-rose-950/20 active:scale-95 disabled:opacity-50"
+          disabled={isClosing || cooldown}
+          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 px-6 font-semibold text-white shadow-lg transition-all duration-300 hover:from-rose-500 hover:to-pink-500 hover:shadow-rose-950/20 active:scale-95 disabled:opacity-50 cursor-pointer"
         >
-          {isClosing ? <RefreshCw className="h-4 w-4 animate-spin" /> : 'Close Position'}
+          {isClosing ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : cooldown ? (
+            'Cooldown (3s)...'
+          ) : (
+            'Close Position'
+          )}
         </button>
       </div>
 
@@ -223,6 +240,39 @@ export default function ActivePosition() {
           feedback.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
         }`}>
           {feedback.message}
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-rose-500">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Close Position
+            </h4>
+            
+            <p className="text-xs text-slate-300 my-4 leading-relaxed">
+              Are you sure you want to close this position at current market price? This action will execute immediate orders on the broker exchange and cannot be undone.
+            </p>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 font-semibold text-slate-300 border border-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClose}
+                className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-white transition-colors cursor-pointer"
+              >
+                Confirm Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

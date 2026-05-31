@@ -13,10 +13,26 @@ export default function SettingsPanel() {
   const [closePath, setClosePath] = useState(settings.webhookClosePath);
   const [statusPath, setStatusPath] = useState(settings.webhookStatusPath);
   
+  const [webhookSecret, setWebhookSecret] = useState(settings.webhookSecret || '');
+  const [telegramToken, setTelegramToken] = useState(settings.telegramToken || '');
+  
   const [useManualRate, setUseManualRate] = useState(settings.useManualExchangeRate);
   const [manualRate, setManualRate] = useState(settings.manualExchangeRate.toString());
   
   const [isSimulated, setIsSimulated] = useState(settings.isSimulatedMode);
+
+  // Sync inputs with settings once they are asynchronously loaded
+  useEffect(() => {
+    setN8nUrl(settings.n8nBaseUrl);
+    setExecPath(settings.webhookExecutePath);
+    setClosePath(settings.webhookClosePath);
+    setStatusPath(settings.webhookStatusPath);
+    setWebhookSecret(settings.webhookSecret || '');
+    setTelegramToken(settings.telegramToken || '');
+    setUseManualRate(settings.useManualExchangeRate);
+    setManualRate(settings.manualExchangeRate.toString());
+    setIsSimulated(settings.isSimulatedMode);
+  }, [settings]);
   
   // API credentials configuration state checked from server
   const [binanceStatus, setBinanceStatus] = useState<{ configured: boolean; keyPresent: boolean; secretPresent: boolean }>({
@@ -96,6 +112,8 @@ export default function SettingsPanel() {
         useManualExchangeRate: useManualRate,
         manualExchangeRate: isNaN(parsedRate) ? settings.manualExchangeRate : parsedRate,
         isSimulatedMode: isSimulated,
+        webhookSecret: webhookSecret.trim(),
+        telegramToken: telegramToken.trim(),
       });
 
       setSaveStatus({ type: 'success', message: 'Settings saved successfully!' });
@@ -193,6 +211,31 @@ export default function SettingsPanel() {
                 placeholder="/webhook/gold-position-status"
                 className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none disabled:opacity-50"
               />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">X-Webhook-Secret Token</label>
+              <input
+                type="password"
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+                disabled={isSimulated}
+                placeholder="••••••••••••••••"
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none disabled:opacity-50"
+              />
+              <span className="text-[9px] text-cyan-500/90 block mt-1">⚠️ Stored securely (obfuscated) in Local Storage. Never logged.</span>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">Telegram Bot Token (Optional)</label>
+              <input
+                type="password"
+                value={telegramToken}
+                onChange={(e) => setTelegramToken(e.target.value)}
+                placeholder="••••••••••••••••"
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+              />
+              <span className="text-[9px] text-cyan-500/90 block mt-1">⚠️ Stored securely (obfuscated) in Local Storage.</span>
             </div>
           </div>
         </div>

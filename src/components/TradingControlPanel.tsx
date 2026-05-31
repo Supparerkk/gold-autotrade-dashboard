@@ -21,6 +21,9 @@ export default function TradingControlPanel() {
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  const [showConfirm, setShowConfirm] = useState<boolean>(false);
+  const [cooldown, setCooldown] = useState<boolean>(false);
+
   // Sync entry price to live price if not touched
   useEffect(() => {
     if (goldPrice > 0 && !entryPrice) {
@@ -135,7 +138,35 @@ export default function TradingControlPanel() {
     return calculations.totalProfitUsdt / calculations.slLossUsdt;
   }, [calculations]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleConfirmTrade = async () => {
+    setShowConfirm(false);
+    setIsExecuting(true);
+    setFeedback(null);
+
+    const res = await executeTrade({
+      direction,
+      entry_price: numericEntry,
+      sl_price: slPrice,
+      tp1_price: tp1Price,
+      tp2_price: tp2Price,
+      position_size_usdt: positionSizeUsdt,
+      capital_thb: CAPITAL_THB,
+    });
+
+    setIsExecuting(false);
+    
+    // 3-second button cooldown guard
+    setCooldown(true);
+    setTimeout(() => setCooldown(false), 3000);
+
+    if (res.success) {
+      setFeedback({ type: 'success', message: res.message });
+    } else {
+      setFeedback({ type: 'error', message: res.message });
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (activePosition) {
       setFeedback({ type: 'error', message: 'Close active position before executing a new trade.' });
@@ -168,25 +199,8 @@ export default function TradingControlPanel() {
       }
     }
 
-    setIsExecuting(true);
-    setFeedback(null);
-
-    const res = await executeTrade({
-      direction,
-      entry_price: numericEntry,
-      sl_price: slPrice,
-      tp1_price: tp1Price,
-      tp2_price: tp2Price,
-      position_size_usdt: positionSizeUsdt,
-      capital_thb: CAPITAL_THB,
-    });
-
-    setIsExecuting(false);
-    if (res.success) {
-      setFeedback({ type: 'success', message: res.message });
-    } else {
-      setFeedback({ type: 'error', message: res.message });
-    }
+    // Validation checks passed, display confirm overlay modal
+    setShowConfirm(true);
   };
 
   return (
@@ -419,8 +433,8 @@ export default function TradingControlPanel() {
         {/* Execute Button */}
         <button
           type="submit"
-          disabled={isExecuting || !!activePosition}
-          className="flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 font-bold text-white shadow-lg shadow-cyan-950/20 transition-all duration-300 hover:from-cyan-400 hover:to-blue-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+          disabled={isExecuting || cooldown || !!activePosition}
+          className="flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 font-bold text-white shadow-lg shadow-cyan-950/20 transition-all duration-300 hover:from-cyan-400 hover:to-blue-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
         >
           {isExecuting ? (
             <span className="flex items-center gap-2">
@@ -430,6 +444,8 @@ export default function TradingControlPanel() {
               </svg>
               Executing trade...
             </span>
+          ) : cooldown ? (
+            'Cooldown Active (3s)...'
           ) : activePosition ? (
             'Position Already Open'
           ) : (
@@ -447,6 +463,64 @@ export default function TradingControlPanel() {
         }`}>
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>{feedback.message}</span>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-cyan-400">
+              <AlertCircle className="h-5 w-5" />
+              Confirm Trade Execution
+            </h4>
+            
+            <div className="space-y-3.5 text-xs text-slate-300 my-4">
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Direction</span>
+                <span className={`font-bold ${direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {direction}
+                </span>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Entry Price</span>
+                <span className="font-bold text-slate-200">${numericEntry.toLocaleString()} USDT</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Stop Loss Target</span>
+                <span className="font-bold text-rose-400">${slPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Take Profit 1 (50%)</span>
+                <span className="font-bold text-yellow-400">${tp1Price.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Take Profit 2 (100%)</span>
+                <span className="font-bold text-emerald-400">${tp2Price.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Position Size</span>
+                <span className="font-bold text-cyan-400">${positionSizeUsdt.toFixed(2)} USDT</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 font-semibold text-slate-300 border border-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmTrade}
+                className="flex-1 h-10 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 transition-colors cursor-pointer"
+              >
+                Confirm Trade
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

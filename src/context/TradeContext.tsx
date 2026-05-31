@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { secureGet, secureSet, sanitize } from '@/lib/security';
 
 export interface Trade {
   id: string;
@@ -36,6 +37,8 @@ export interface Settings {
   manualExchangeRate: number;
   useManualExchangeRate: boolean;
   isSimulatedMode: boolean;
+  webhookSecret?: string;
+  telegramToken?: string;
 }
 
 export interface KLine {
@@ -80,7 +83,61 @@ const defaultSettings: Settings = {
   manualExchangeRate: 36.5,
   useManualExchangeRate: false,
   isSimulatedMode: false, // Default to false to connect to your live Hostinger n8n instance
+  webhookSecret: '',
+  telegramToken: '',
 };
+
+/**
+ * Secure fetch wrapper that enforces HTTPS/local endpoints, injects authorization headers,
+ * handles request timeouts, and returns safe nullable responses on failure.
+ */
+export async function secureFetch(url: string, options: RequestInit = {}): Promise<Response | null> {
+  // 1. Validate URL is https:// or relative /api/ path
+  if (!url.startsWith('https://') && !url.startsWith('/api/')) {
+    console.error(`[Security] Insecure endpoint blocked: ${url}`);
+    return null;
+  }
+
+  // 2. Add X-Webhook-Secret header automatically from secureGet
+  const secret = secureGet('webhookSecret');
+  const headers = new Headers(options.headers || {});
+  if (secret) {
+    headers.set('X-Webhook-Secret', secret);
+  }
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  // 3. Add AbortController with 15-second timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+
+    // 4. Validate response status
+    if (!response.ok) {
+      const errorMsg = await response.text().catch(() => 'Network request failed.');
+      throw new Error(errorMsg || `Response status: ${response.status}`);
+    }
+
+    return response;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      console.error(`[Security] API Request timed out: ${url}`);
+    } else {
+      console.error(`[Security] Fetch error for URL: ${url}`, err.message || err);
+    }
+    return null;
+  }
+}
 
 const TradeContext = createContext<TradeContextType | undefined>(undefined);
 
@@ -126,8 +183,8 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     try {
-      const res = await fetch('https://open.er-api.com/v6/latest/USD');
-      if (!res.ok) throw new Error('Failed to fetch exchange rate');
+      const res = await secureFetch('https://open.er-api.com/v6/latest/USD');
+      if (!res) throw new Error('Failed to fetch exchange rate');
       const data = await res.json();
       const rate = data.rates?.THB;
       if (rate) {
@@ -183,6 +240,10 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         merged.webhookStatusPath = merged.webhookStatusPath.replace('btc', 'gold');
       }
 
+      // Load sensitive configurations obfuscated
+      merged.webhookSecret = secureGet('webhookSecret');
+      merged.telegramToken = secureGet('telegramToken');
+
       setSettings(merged);
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -195,7 +256,16 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     setSettings(updated);
 
     try {
-      localStorage.setItem('gold_trade_settings', JSON.stringify(updated));
+      // ⚠️ SECURITY: Exclude sensitive credentials from plain-text gold_trade_settings storage
+      const { webhookSecret, telegramToken, ...plainSettings } = updated;
+      localStorage.setItem('gold_trade_settings', JSON.stringify(plainSettings));
+
+      if (webhookSecret !== undefined) {
+        secureSet('webhookSecret', webhookSecret);
+      }
+      if (telegramToken !== undefined) {
+        secureSet('telegramToken', telegramToken);
+      }
 
       if (isSupabaseConfigured && supabase) {
         const updates = Object.entries(newSettings).map(([key, val]) => ({
@@ -292,8 +362,8 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance PAXG/USDT price and stats
   const fetchBinanceTicker = useCallback(async () => {
     try {
-      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
-      if (!res.ok) throw new Error('Binance API response error');
+      const res = await secureFetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
+      if (!res) throw new Error('Binance API response error');
       const data = await res.json();
       setGoldPrice(parseFloat(data.lastPrice));
       setPriceChange24h(parseFloat(data.priceChangePercent));
@@ -305,8 +375,8 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   // Fetch Binance Candlestick Klines (24h of 1h candles)
   const fetchBinanceKlines = useCallback(async () => {
     try {
-      const res = await fetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
-      if (!res.ok) throw new Error('Binance Klines API error');
+      const res = await secureFetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
+      if (!res) throw new Error('Binance Klines API error');
       const data = await res.json();
       const formatted: KLine[] = data.map((item: any) => {
         // time is index 0 (ms), open 1, high 2, low 3, close 4
@@ -528,18 +598,16 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
     // Call live n8n webhook API through proxy
     try {
-      const response = await fetch('/api/trade/execute', {
+      const response = await secureFetch('/api/trade/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...payload,
-          settings, // pass current settings to proxy server
+          settings,
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Server responded with an error');
+      if (!response) {
+        throw new Error('Server responded with an error or request timed out.');
       }
 
       const responseData = await response.json();
@@ -657,18 +725,16 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
     // Call live n8n webhook API
     try {
-      const response = await fetch('/api/trade/close', {
+      const response = await secureFetch('/api/trade/close', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...payload,
           settings,
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Server responded with an error');
+      if (!response) {
+        throw new Error('Server responded with an error or request timed out.');
       }
 
       const responseData = await response.json();
@@ -720,8 +786,8 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
           webhookStatusPath: settings.webhookStatusPath,
         });
         
-        const res = await fetch(`/api/trade/status?${queryParams.toString()}`);
-        if (!res.ok) throw new Error('Status polling request failed');
+        const res = await secureFetch(`/api/trade/status?${queryParams.toString()}`);
+        if (!res) throw new Error('Status polling request failed');
         
         const data = await res.json();
         
