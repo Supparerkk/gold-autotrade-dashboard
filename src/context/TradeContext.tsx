@@ -26,6 +26,15 @@ export interface Trade {
   capital_thb: number;
   result?: 'WIN' | 'LOSS';
   notes?: string;
+  
+  // New Auto-Trade helper fields
+  trailing_sl_enabled?: boolean;
+  trailing_distance_type?: 'pct' | 'price';
+  trailing_distance?: number;
+  auto_breakeven_enabled?: boolean;
+  partial_close_enabled?: boolean;
+  partial_close_pct?: number;
+  breakeven_active?: boolean;
 }
 
 export interface Settings {
@@ -48,6 +57,7 @@ export interface Settings {
   alertDisconnection: boolean;
   maxRiskPercent: number;
   maxOpenPositions: number;
+  dailyLossLimit: number; // New Daily Loss Limit Setting
 }
 
 export interface KLine {
@@ -71,6 +81,7 @@ interface TradeContextType {
   lastPingTime: Date | null;
   latency: number | null;
   lastUpdatedTime: Date | null;
+  dailyLossLimitReached: boolean; // New context variable
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
   executeTrade: (tradeParams: {
     direction: 'LONG' | 'SHORT';
@@ -80,6 +91,12 @@ interface TradeContextType {
     tp2_price: number;
     position_size_usdt: number;
     capital_thb: number;
+    trailing_sl_enabled?: boolean;
+    trailing_distance_type?: 'pct' | 'price';
+    trailing_distance?: number;
+    auto_breakeven_enabled?: boolean;
+    partial_close_enabled?: boolean;
+    partial_close_pct?: number;
   }) => Promise<{ success: boolean; message: string }>;
   closeActivePosition: (reason?: string) => Promise<{ success: boolean; message: string }>;
   refreshTradeLogs: () => Promise<void>;
@@ -109,6 +126,7 @@ const defaultSettings: Settings = {
   alertDisconnection: true,
   maxRiskPercent: 2,
   maxOpenPositions: 1,
+  dailyLossLimit: 300, // Default 300 THB
 };
 
 /**
@@ -191,6 +209,91 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   const [lastPingTime, setLastPingTime] = useState<Date | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
+  const [dailyLossLimitReached, setDailyLossLimitReached] = useState<boolean>(false);
+
+  // Auto-save active trade config to localStorage
+  useEffect(() => {
+    if (activePosition) {
+      localStorage.setItem('active_position_config', JSON.stringify({
+        trailing_sl_enabled: activePosition.trailing_sl_enabled,
+        trailing_distance_type: activePosition.trailing_distance_type,
+        trailing_distance: activePosition.trailing_distance,
+        auto_breakeven_enabled: activePosition.auto_breakeven_enabled,
+        partial_close_enabled: activePosition.partial_close_enabled,
+        partial_close_pct: activePosition.partial_close_pct,
+        breakeven_active: activePosition.breakeven_active,
+      }));
+    } else {
+      localStorage.removeItem('active_position_config');
+    }
+  }, [activePosition]);
+
+  // Check Daily Loss Limit (Bangkok Time GMT+7)
+  useEffect(() => {
+    if (isLoading) return;
+    
+    const getBangkokDateKey = () => {
+      const now = new Date();
+      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const bangkokTime = new Date(utc + (3600000 * 7));
+      return bangkokTime.toISOString().split('T')[0];
+    };
+
+    const dateKey = getBangkokDateKey();
+    const pauseKey = `daily_loss_paused_${dateKey}`;
+    
+    if (localStorage.getItem(pauseKey) === 'true') {
+      setDailyLossLimitReached(true);
+      return;
+    }
+
+    const limit = settings.dailyLossLimit || 300;
+    const todayClosedTrades = tradeLogs.filter(trade => {
+      if (trade.status !== 'CLOSED' && trade.status !== 'SL_HIT' && trade.status !== 'TP2_HIT') {
+        if (!trade.closed_at) return false;
+      }
+      if (!trade.closed_at) return false;
+      
+      const closedDate = new Date(trade.closed_at);
+      const utcClosed = closedDate.getTime() + (closedDate.getTimezoneOffset() * 60000);
+      const bkkClosed = new Date(utcClosed + (3600000 * 7));
+      const closedDateStr = bkkClosed.toISOString().split('T')[0];
+      
+      return closedDateStr === dateKey;
+    });
+
+    let totalPnlThb = 0;
+    todayClosedTrades.forEach(trade => {
+      if (trade.pnl_thb) {
+        totalPnlThb += trade.pnl_thb;
+      }
+    });
+
+    const totalLossThb = totalPnlThb < 0 ? -totalPnlThb : 0;
+
+    if (totalLossThb >= limit) {
+      setDailyLossLimitReached(true);
+      localStorage.setItem(pauseKey, 'true');
+      
+      const notifyKey = `daily_loss_notified_${dateKey}`;
+      if (settings.telegramEnabled && localStorage.getItem(notifyKey) !== 'true') {
+        localStorage.setItem(notifyKey, 'true');
+        // Standard Telegram API trigger through context
+        const token = secureGet('telegramToken') || settings.telegramToken || '';
+        const chatId = secureGet('telegramChatId') || settings.telegramChatId || '';
+        if (token && chatId) {
+          const url = `https://api.telegram.org/bot${token}/sendMessage`;
+          fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: `⛔ Daily loss limit of ${limit} THB reached. Bot paused.` })
+          }).catch(e => console.error('Telegram notification error:', e));
+        }
+      }
+    } else {
+      setDailyLossLimitReached(false);
+    }
+  }, [tradeLogs, settings.dailyLossLimit, settings.telegramEnabled, isLoading, settings.telegramToken, settings.telegramChatId]);
 
   // Ask for notification permission on mount
   useEffect(() => {
@@ -367,6 +470,17 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       
       // Active position is the latest one with state not CLOSED/SL_HIT/TP2_HIT or explicitly marked as OPEN
       const active = logs.find(log => log.status === 'OPEN' || log.status === 'TP1_HIT');
+      if (active) {
+        const configStr = localStorage.getItem('active_position_config');
+        if (configStr) {
+          try {
+            const config = JSON.parse(configStr);
+            Object.assign(active, config);
+          } catch (e) {
+            console.error('Failed to parse active position config:', e);
+          }
+        }
+      }
       setActivePosition(active || null);
     } catch (err) {
       console.error('Failed to load trade logs:', err);
@@ -514,97 +628,224 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     refreshTradeLogs();
   }, [refreshTradeLogs]);
 
-  // Live Position monitor for simulated mode SL/TP triggers
+  // Send Telegram message helper
+  const sendTelegramNotification = useCallback(async (message: string) => {
+    if (!settings.telegramEnabled || !settings.telegramToken || !settings.telegramChatId) {
+      return;
+    }
+    try {
+      const url = `https://api.telegram.org/bot${settings.telegramToken}/sendMessage`;
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: settings.telegramChatId,
+          text: message,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to send Telegram message:', err);
+    }
+  }, [settings.telegramEnabled, settings.telegramToken, settings.telegramChatId]);
+
+  // Live Position monitor for Trailing Stop, Breakeven, Partial Close and Simulated Hits
   useEffect(() => {
-    if (!settings.isSimulatedMode || !activePosition || goldPrice === 0) return;
+    if (!activePosition || goldPrice === 0) return;
 
     const currentPrice = goldPrice;
     const isLong = activePosition.direction === 'LONG';
+    let newSl = activePosition.sl_price;
+    let slChanged = false;
     let updatedStatus: Trade['status'] = activePosition.status;
-    let didTrigger = false;
+    let didTriggerSimClose = false;
     let triggerMsg = '';
-
-    // Check Stop Loss
-    if (isLong ? currentPrice <= activePosition.sl_price : currentPrice >= activePosition.sl_price) {
-      updatedStatus = 'SL_HIT';
-      didTrigger = true;
-      triggerMsg = `Stop Loss Hit at ${currentPrice} USDT!`;
-    } 
-    // Check Take Profit 2 (Close position entirely)
-    else if (isLong ? currentPrice >= activePosition.tp2_price : currentPrice <= activePosition.tp2_price) {
-      updatedStatus = 'TP2_HIT';
-      didTrigger = true;
-      triggerMsg = `Take Profit 2 Hit at ${currentPrice} USDT! Position complete.`;
+    
+    // 1. Trailing Stop Loss Logic
+    if (activePosition.trailing_sl_enabled && activePosition.trailing_distance) {
+      let distUsdt = activePosition.trailing_distance;
+      if (activePosition.trailing_distance_type === 'pct') {
+        distUsdt = activePosition.entry_price * (activePosition.trailing_distance / 100);
+      }
+      
+      const calculatedSl = isLong ? currentPrice - distUsdt : currentPrice + distUsdt;
+      if (isLong) {
+        if (calculatedSl > newSl) {
+          newSl = parseFloat(calculatedSl.toFixed(2));
+          slChanged = true;
+        }
+      } else {
+        if (calculatedSl < newSl) {
+          newSl = parseFloat(calculatedSl.toFixed(2));
+          slChanged = true;
+        }
+      }
     }
-    // Check Take Profit 1 (Partial exits)
-    else if (activePosition.status === 'OPEN' && (isLong ? currentPrice >= activePosition.tp1_price : currentPrice <= activePosition.tp1_price)) {
+
+    // 2. Auto Breakeven at TP1 Logic
+    const bkKey = `breakeven_triggered_${activePosition.id}`;
+    let bkTriggered = localStorage.getItem(bkKey) === 'true' || !!activePosition.breakeven_active;
+    const hitTp1 = isLong ? currentPrice >= activePosition.tp1_price : currentPrice <= activePosition.tp1_price;
+    
+    if (activePosition.auto_breakeven_enabled && hitTp1 && !bkTriggered) {
+      localStorage.setItem(bkKey, 'true');
+      bkTriggered = true;
+      newSl = activePosition.entry_price;
+      slChanged = true;
+      activePosition.breakeven_active = true;
+      
+      triggerNotification('Breakeven Active', `✅ SL moved to Breakeven (Entry: $${activePosition.entry_price})`);
+      
+      if (settings.telegramEnabled) {
+        sendTelegramNotification(`🛡️ Auto Breakeven Active for Trade #${activePosition.id}. SL moved to Entry: $${activePosition.entry_price}`);
+      }
+    }
+
+    // 3. Partial Close at TP1 Logic
+    const pcKey = `partial_close_triggered_${activePosition.id}`;
+    let pcTriggered = localStorage.getItem(pcKey) === 'true' || !!activePosition.tp1_hit;
+    
+    if (activePosition.partial_close_enabled && hitTp1 && !pcTriggered) {
+      localStorage.setItem(pcKey, 'true');
+      pcTriggered = true;
+      activePosition.tp1_hit = true;
       updatedStatus = 'TP1_HIT';
-      didTrigger = true;
-      triggerMsg = `Take Profit 1 Hit at ${currentPrice} USDT! 50% partial exit secured.`;
-    }
-
-    if (didTrigger) {
-      triggerNotification('Trade Signal Alert', triggerMsg);
-
-      const isExit = updatedStatus === 'SL_HIT' || updatedStatus === 'TP2_HIT';
-      const exitPrice = isExit ? currentPrice : undefined;
-
-      let pnlUsdt = 0;
-      let pnlThb = 0;
-      let result: Trade['result'] = undefined;
-
-      if (isExit) {
-        // Calculate dynamic PnL
-        const diffPercent = (currentPrice - activePosition.entry_price) / activePosition.entry_price;
-        const rawPnL = activePosition.position_size_usdt * diffPercent;
-        pnlUsdt = isLong ? rawPnL : -rawPnL;
-        pnlThb = pnlUsdt * exchangeRate;
-        result = pnlUsdt > 0 ? 'WIN' : 'LOSS';
+      
+      const closePct = activePosition.partial_close_pct || 50;
+      const closedAmount = (activePosition.position_size_usdt * (closePct / 100)).toFixed(2);
+      
+      // Update position size locally
+      activePosition.position_size_usdt = parseFloat((activePosition.position_size_usdt * ((100 - closePct) / 100)).toFixed(2));
+      activePosition.status = 'TP1_HIT';
+      
+      triggerNotification('Partial Close executed', `📤 Closed ${closePct}% at TP1 (+$${closedAmount} USDT)`);
+      
+      if (settings.telegramEnabled) {
+        sendTelegramNotification(`📤 Partial Close executed for Trade #${activePosition.id}: Closed ${closePct}% at TP1 (+$${closedAmount} USDT). Remaining position: ${100 - closePct}%`);
       }
 
-      const updatedTrade: Trade = {
-        ...activePosition,
-        status: isExit ? 'CLOSED' : updatedStatus,
-        tp1_hit: activePosition.tp1_hit || updatedStatus === 'TP1_HIT',
-        tp2_hit: activePosition.tp2_hit || updatedStatus === 'TP2_HIT',
-        sl_hit: activePosition.sl_hit || updatedStatus === 'SL_HIT',
-        exit_price: exitPrice || activePosition.exit_price,
-        pnl_usdt: isExit ? pnlUsdt : activePosition.pnl_usdt,
-        pnl_thb: isExit ? pnlThb : activePosition.pnl_thb,
-        result: result || activePosition.result,
-        closed_at: isExit ? new Date().toISOString() : activePosition.closed_at,
-      };
+      // POST to /api/trade/partial-close proxy
+      if (!settings.isSimulatedMode) {
+        secureFetch('/api/trade/partial-close', {
+          method: 'POST',
+          body: JSON.stringify({
+            trade_id: activePosition.id,
+            close_percent: closePct,
+            reason: 'TP1_PARTIAL',
+            settings
+          })
+        });
+      }
+    }
 
+    // 4. Simulated Close Triggers (SL or TP2)
+    if (settings.isSimulatedMode) {
+      if (isLong ? currentPrice <= newSl : currentPrice >= newSl) {
+        updatedStatus = 'SL_HIT';
+        didTriggerSimClose = true;
+        triggerMsg = `Stop Loss Hit at ${currentPrice} USDT!`;
+      } else if (isLong ? currentPrice >= activePosition.tp2_price : currentPrice <= activePosition.tp2_price) {
+        updatedStatus = 'TP2_HIT';
+        didTriggerSimClose = true;
+        triggerMsg = `Take Profit 2 Hit at ${currentPrice} USDT! Position complete.`;
+      }
+    }
+
+    // Handle SL change (Trailing stop update or Breakeven trigger)
+    if (slChanged && newSl !== activePosition.sl_price && !didTriggerSimClose) {
+      activePosition.sl_price = newSl;
+      
+      if (!settings.isSimulatedMode) {
+        secureFetch('/api/trade/update-sl', {
+          method: 'POST',
+          body: JSON.stringify({
+            trade_id: activePosition.id,
+            new_sl: newSl,
+            reason: bkTriggered && newSl === activePosition.entry_price ? 'AUTO_BREAKEVEN' : 'TRAILING_SL',
+            settings
+          })
+        });
+      }
+
+      const updatedTrade = { ...activePosition, sl_price: newSl, status: updatedStatus };
       const updatedLogs = tradeLogs.map((log) => (log.id === activePosition.id ? updatedTrade : log));
       saveTradeLogs(updatedLogs);
-      
-      // Update Supabase if configured
+      setActivePosition(updatedTrade);
+
       if (isSupabaseConfigured && supabase) {
         supabase
           .from('trades')
           .update({
+            sl_price: newSl,
             status: updatedTrade.status,
             tp1_hit: updatedTrade.tp1_hit,
-            tp2_hit: updatedTrade.tp2_hit,
-            sl_hit: updatedTrade.sl_hit,
-            exit_price: updatedTrade.exit_price || null,
-            pnl_usdt: updatedTrade.pnl_usdt || null,
-            pnl_thb: updatedTrade.pnl_thb || null,
-            closed_at: updatedTrade.closed_at || null,
+            position_size_usdt: updatedTrade.position_size_usdt
           })
-          .eq('id', activePosition.id)
-          .then(({ error }) => {
-            if (error) console.error('Error updating trade auto-close in Supabase:', error);
-          });
+          .eq('id', activePosition.id);
       }
+    } else if (didTriggerSimClose && settings.isSimulatedMode) {
+      // Execute simulated closure
+      triggerNotification('Trade Signal Alert', triggerMsg);
       
-      if (isExit) {
-        setActivePosition(null);
-      } else {
-        setActivePosition(updatedTrade);
+      const exitPrice = currentPrice;
+      const diffPercent = (exitPrice - activePosition.entry_price) / activePosition.entry_price;
+      const rawPnL = activePosition.position_size_usdt * diffPercent;
+      const pnlUsdt = isLong ? rawPnL : -rawPnL;
+      const pnlThb = pnlUsdt * exchangeRate;
+      const result = pnlUsdt > 0 ? 'WIN' : 'LOSS';
+
+      const closedTrade: Trade = {
+        ...activePosition,
+        status: 'CLOSED',
+        tp1_hit: activePosition.tp1_hit || updatedStatus === 'TP1_HIT',
+        tp2_hit: activePosition.tp2_hit || updatedStatus === 'TP2_HIT',
+        sl_hit: activePosition.sl_hit || updatedStatus === 'SL_HIT',
+        exit_price: exitPrice,
+        pnl_usdt: pnlUsdt,
+        pnl_thb: pnlThb,
+        result: result,
+        closed_at: new Date().toISOString(),
+      };
+
+      const updatedLogs = tradeLogs.map((log) => (log.id === activePosition.id ? closedTrade : log));
+      saveTradeLogs(updatedLogs);
+      setActivePosition(null);
+
+      if (isSupabaseConfigured && supabase) {
+        supabase
+          .from('trades')
+          .update({
+            status: closedTrade.status,
+            tp1_hit: closedTrade.tp1_hit,
+            tp2_hit: closedTrade.tp2_hit,
+            sl_hit: closedTrade.sl_hit,
+            exit_price: closedTrade.exit_price,
+            pnl_usdt: closedTrade.pnl_usdt,
+            pnl_thb: closedTrade.pnl_thb,
+            closed_at: closedTrade.closed_at,
+          })
+          .eq('id', activePosition.id);
+      }
+    } else if (updatedStatus !== activePosition.status) {
+      // Just status changed (e.g. TP1 Hit)
+      const updatedTrade = { ...activePosition, status: updatedStatus };
+      const updatedLogs = tradeLogs.map((log) => (log.id === activePosition.id ? updatedTrade : log));
+      saveTradeLogs(updatedLogs);
+      setActivePosition(updatedTrade);
+
+      if (isSupabaseConfigured && supabase) {
+        supabase
+          .from('trades')
+          .update({
+            status: updatedStatus,
+            tp1_hit: updatedTrade.tp1_hit,
+            position_size_usdt: updatedTrade.position_size_usdt
+          })
+          .eq('id', activePosition.id);
       }
     }
-  }, [goldPrice, activePosition, settings.isSimulatedMode, tradeLogs, exchangeRate, triggerNotification]);
+  }, [goldPrice, activePosition, settings, settings.isSimulatedMode, settings.telegramEnabled, tradeLogs, exchangeRate, triggerNotification, sendTelegramNotification]);
 
   // Execute Trade
   const executeTrade = async (params: {
@@ -615,6 +856,12 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     tp2_price: number;
     position_size_usdt: number;
     capital_thb: number;
+    trailing_sl_enabled?: boolean;
+    trailing_distance_type?: 'pct' | 'price';
+    trailing_distance?: number;
+    auto_breakeven_enabled?: boolean;
+    partial_close_enabled?: boolean;
+    partial_close_pct?: number;
   }) => {
     if (activePosition) {
       return { success: false, message: 'An active position is already open.' };
@@ -634,6 +881,14 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       position_size_usdt: params.position_size_usdt,
       capital_thb: params.capital_thb,
       timestamp: new Date().toISOString(),
+      
+      // Auto-trade parameters
+      trailing_sl_enabled: params.trailing_sl_enabled,
+      trailing_distance_type: params.trailing_distance_type,
+      trailing_distance: params.trailing_distance,
+      auto_breakeven_enabled: params.auto_breakeven_enabled,
+      partial_close_enabled: params.partial_close_enabled,
+      partial_close_pct: params.partial_close_pct,
     };
 
     if (settings.isSimulatedMode) {
@@ -654,6 +909,12 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         sl_hit: false,
         position_size_usdt: params.position_size_usdt,
         capital_thb: params.capital_thb,
+        trailing_sl_enabled: params.trailing_sl_enabled,
+        trailing_distance_type: params.trailing_distance_type,
+        trailing_distance: params.trailing_distance,
+        auto_breakeven_enabled: params.auto_breakeven_enabled,
+        partial_close_enabled: params.partial_close_enabled,
+        partial_close_pct: params.partial_close_pct,
       };
 
       const updatedLogs = [newTrade, ...tradeLogs];
@@ -718,6 +979,12 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         sl_hit: false,
         position_size_usdt: params.position_size_usdt,
         capital_thb: params.capital_thb,
+        trailing_sl_enabled: params.trailing_sl_enabled,
+        trailing_distance_type: params.trailing_distance_type,
+        trailing_distance: params.trailing_distance,
+        auto_breakeven_enabled: params.auto_breakeven_enabled,
+        partial_close_enabled: params.partial_close_enabled,
+        partial_close_pct: params.partial_close_pct,
       };
 
       // Add to local state (Supabase will also be updated via n8n directly, but we write locally to be safe)
@@ -933,6 +1200,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         lastPingTime,
         latency,
         lastUpdatedTime,
+        dailyLossLimitReached,
         updateSettings,
         executeTrade,
         closeActivePosition,

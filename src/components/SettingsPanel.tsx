@@ -33,6 +33,7 @@ export default function SettingsPanel() {
   // Risk Management Limits
   const [maxRisk, setMaxRisk] = useState(settings.maxRiskPercent.toString());
   const [maxOpenPos, setMaxOpenPos] = useState(settings.maxOpenPositions.toString());
+  const [dailyLossLimit, setDailyLossLimit] = useState((settings.dailyLossLimit || 300).toString());
 
   // Sync inputs with settings once they are asynchronously loaded
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function SettingsPanel() {
 
     setMaxRisk(settings.maxRiskPercent.toString());
     setMaxOpenPos(settings.maxOpenPositions.toString());
+    setDailyLossLimit((settings.dailyLossLimit || 300).toString());
   }, [settings]);
 
   // API credentials configuration state checked from server
@@ -163,11 +165,16 @@ export default function SettingsPanel() {
 
       const parsedRisk = parseFloat(maxRisk);
       const parsedOpenPos = parseInt(maxOpenPos);
+      const parsedDailyLossLimit = parseFloat(dailyLossLimit);
+      
       if (isNaN(parsedRisk) || parsedRisk < 0.1 || parsedRisk > 10) {
         throw new Error('Max Risk must be between 0.1% and 10%.');
       }
       if (isNaN(parsedOpenPos) || parsedOpenPos < 1 || parsedOpenPos > 5) {
         throw new Error('Max Open Positions must be between 1 and 5.');
+      }
+      if (isNaN(parsedDailyLossLimit) || parsedDailyLossLimit <= 0) {
+        throw new Error('Daily Loss Limit must be a positive number.');
       }
 
       await updateSettings({
@@ -189,6 +196,7 @@ export default function SettingsPanel() {
         alertDisconnection,
         maxRiskPercent: parsedRisk,
         maxOpenPositions: parsedOpenPos,
+        dailyLossLimit: parsedDailyLossLimit,
       });
 
       setSaveStatus({ type: 'success', message: 'Settings saved successfully!' });
@@ -462,7 +470,7 @@ export default function SettingsPanel() {
             Risk Management Limits
           </h4>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-xs text-slate-400 font-semibold block mb-1">Max Risk Per Trade (%)</label>
               <input
@@ -488,6 +496,18 @@ export default function SettingsPanel() {
                 className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
               />
               <span className="text-[10px] text-slate-500 block mt-1">Disable trade execution if current position count reaches this value (range 1 - 5).</span>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">Daily Loss Limit (THB)</label>
+              <input
+                type="number"
+                min="1"
+                value={dailyLossLimit}
+                onChange={(e) => setDailyLossLimit(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+              />
+              <span className="text-[10px] text-slate-500 block mt-1">Daily loss limit before auto-pausing bot (e.g. 300 THB).</span>
             </div>
           </div>
         </div>

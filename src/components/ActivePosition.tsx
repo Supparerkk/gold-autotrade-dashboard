@@ -150,7 +150,7 @@ export default function ActivePosition() {
       />
 
       <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           {/* Pulsing indicator */}
           <span className="relative flex h-2 w-2 mr-1">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
@@ -166,6 +166,27 @@ export default function ActivePosition() {
           >
             {direction}
           </span>
+          
+          {/* Trailing Active Badge */}
+          {activePosition.trailing_sl_enabled && (
+            <span className="rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+              🔄 Trailing Active
+            </span>
+          )}
+
+          {/* Breakeven Active Badge */}
+          {activePosition.breakeven_active && (
+            <span className="rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+              🛡️ Breakeven Active
+            </span>
+          )}
+
+          {/* Remaining Position Size Badge */}
+          {activePosition.tp1_hit && activePosition.partial_close_enabled && (
+            <span className="rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+              Remaining: {100 - (activePosition.partial_close_pct || 50)}%
+            </span>
+          )}
         </div>
         <div>{getStatusBadge()}</div>
       </div>
@@ -254,13 +275,13 @@ export default function ActivePosition() {
 
           {/* TP1 Price Label */}
           <div className="absolute flex flex-col items-center -translate-x-1/2" style={{ left: `${tp1Pct}%` }}>
-            <span className="text-[9px] font-bold text-yellow-500 uppercase">TP1</span>
+            <span className="text-[9px] font-bold text-yellow-500 uppercase">TP1 {tp1_hit ? '✅' : ''}</span>
             <span className="text-[10px] font-semibold text-yellow-400">${tp1_price.toLocaleString()}</span>
           </div>
 
           {/* TP2 Price Label (Right) */}
           <div className="absolute right-0 flex flex-col items-end">
-            <span className="text-[9px] font-bold text-emerald-500 uppercase">TP2</span>
+            <span className="text-[9px] font-bold text-emerald-500 uppercase">TP2 {tp2_hit ? '✅' : ''}</span>
             <span className="text-[10px] font-semibold text-emerald-400">${tp2_price.toLocaleString()}</span>
           </div>
         </div>

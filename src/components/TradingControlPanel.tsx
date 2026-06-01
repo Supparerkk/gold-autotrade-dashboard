@@ -5,7 +5,7 @@ import { useTrade } from '@/context/TradeContext';
 import { Play, Calculator, AlertCircle } from 'lucide-react';
 
 export default function TradingControlPanel() {
-  const { goldPrice, exchangeRate, executeTrade, activePosition, settings } = useTrade();
+  const { goldPrice, exchangeRate, executeTrade, activePosition, settings, dailyLossLimitReached } = useTrade();
 
   const CAPITAL_THB = 10000;
 
@@ -17,6 +17,14 @@ export default function TradingControlPanel() {
   const [slValue, setSlValue] = useState<string>('2'); // default 2%
   const [tp1Pct, setTp1Pct] = useState<string>('4'); // default 4% (2:1 R:R from 2% SL)
   const [tp2Pct, setTp2Pct] = useState<string>('8'); // default 8% (4:1 R:R)
+
+  // New automation states
+  const [trailingSlEnabled, setTrailingSlEnabled] = useState<boolean>(false);
+  const [trailingDistanceType, setTrailingDistanceType] = useState<'pct' | 'price'>('pct');
+  const [trailingDistance, setTrailingDistance] = useState<string>('2');
+  const [autoBreakevenEnabled, setAutoBreakevenEnabled] = useState<boolean>(false);
+  const [partialCloseEnabled, setPartialCloseEnabled] = useState<boolean>(false);
+  const [partialClosePct, setPartialClosePct] = useState<number>(50);
 
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -163,6 +171,12 @@ export default function TradingControlPanel() {
       tp2_price: tp2Price,
       position_size_usdt: positionSizeUsdt,
       capital_thb: CAPITAL_THB,
+      trailing_sl_enabled: trailingSlEnabled,
+      trailing_distance_type: trailingDistanceType,
+      trailing_distance: parseFloat(trailingDistance) || 2,
+      auto_breakeven_enabled: autoBreakevenEnabled,
+      partial_close_enabled: partialCloseEnabled,
+      partial_close_pct: partialClosePct,
     });
 
     setIsExecuting(false);
@@ -220,12 +234,13 @@ export default function TradingControlPanel() {
     setShowConfirm(true);
   };
 
-  const isExecuteDisabled = isExecuting || cooldown || !!activePosition || (isRiskExceeded && !riskOverride);
+  const isExecuteDisabled = isExecuting || cooldown || !!activePosition || dailyLossLimitReached || (isRiskExceeded && !riskOverride);
 
   const getButtonText = () => {
     if (isExecuting) return 'Executing trade...';
     if (cooldown) return 'Cooldown Active (3s)...';
     if (activePosition) return 'Max positions reached (1/1)';
+    if (dailyLossLimitReached) return 'Blocked (Daily Loss Limit)';
     if (isRiskExceeded && !riskOverride) return 'Execute Blocked (Risk High)';
     if (isRiskExceeded && riskOverride) return 'Execute (Override) ⚡';
     return 'Execute Trade Signal';
@@ -243,6 +258,13 @@ export default function TradingControlPanel() {
         <Calculator className="h-5 w-5 text-cyan-400" />
         Trading Control Panel
       </h3>
+
+      {dailyLossLimitReached && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3.5 text-rose-400 text-xs flex items-center gap-2 mb-4 animate-pulse">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="font-bold">🚫 Daily Loss Limit Reached. Auto-trade paused for today.</span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Direction Switch */}
@@ -413,6 +435,107 @@ export default function TradingControlPanel() {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* New Trailing SL Switch & Inputs */}
+          <div className="border-t border-slate-800/60 pt-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                <input
+                  type="checkbox"
+                  checked={trailingSlEnabled}
+                  onChange={(e) => setTrailingSlEnabled(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>Trailing Stop Loss</span>
+              </label>
+            </div>
+            
+            {trailingSlEnabled && (
+              <div className="grid grid-cols-3 gap-2 items-end pl-6 animate-in slide-in-from-top-1 duration-200">
+                <div className="col-span-2">
+                  <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                    Trailing Distance
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={trailingDistance}
+                    onChange={(e) => setTrailingDistance(e.target.value)}
+                    className="h-8 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-1 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800 h-8">
+                  <button
+                    type="button"
+                    onClick={() => setTrailingDistanceType('pct')}
+                    className={`flex items-center justify-center rounded text-[9px] font-bold ${
+                      trailingDistanceType === 'pct' ? 'bg-slate-800 text-cyan-400' : 'text-slate-500'
+                    }`}
+                  >
+                    %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTrailingDistanceType('price')}
+                    className={`flex items-center justify-center rounded text-[9px] font-bold ${
+                      trailingDistanceType === 'price' ? 'bg-slate-800 text-cyan-400' : 'text-slate-500'
+                    }`}
+                  >
+                    USDT
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* New Auto Breakeven Switch */}
+          <div className="flex items-center justify-between border-t border-slate-800/60 pt-2.5">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              <input
+                type="checkbox"
+                checked={autoBreakevenEnabled}
+                onChange={(e) => setAutoBreakevenEnabled(e.target.checked)}
+                className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+              />
+              <span>Auto Breakeven at TP1</span>
+            </label>
+          </div>
+
+          {/* New Partial Close Switch & Inputs */}
+          <div className="border-t border-slate-800/60 pt-2.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                <input
+                  type="checkbox"
+                  checked={partialCloseEnabled}
+                  onChange={(e) => setPartialCloseEnabled(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>Partial Close at TP1</span>
+              </label>
+            </div>
+            
+            {partialCloseEnabled && (
+              <div className="pl-6 animate-in slide-in-from-top-1 duration-200">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  Close Amount (%)
+                </label>
+                <div className="relative w-1/2">
+                  <input
+                    type="number"
+                    min="10"
+                    max="90"
+                    step="5"
+                    value={partialClosePct}
+                    onChange={(e) => setPartialClosePct(parseInt(e.target.value) || 50)}
+                    className="h-8 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-1 pr-6 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-bold">%</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
