@@ -321,13 +321,46 @@ function toggleManualRateInput(checked) {
 }
 
 /**
+ * Helper to fetch from Binance with rotation of fallback endpoints to bypass ISP blocks.
+ */
+async function fetchFromBinance(path) {
+  const endpoints = [
+    'https://api.binance.com',
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api-gcp.binance.com',
+    'https://data-api.binance.vision'
+  ];
+  
+  let lastError = null;
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint}${path}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout per endpoint
+      
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        return await res.json();
+      }
+      lastError = new Error(`Binance HTTP error! Status: ${res.status} on ${endpoint}`);
+    } catch (err) {
+      lastError = err;
+      console.warn(`Failed fetching from ${endpoint}:`, err.message || err);
+    }
+  }
+  throw lastError || new Error('All Binance endpoints failed');
+}
+
+/**
  * Fetch PAXG/USDT price from Binance Spot API
  */
 async function fetchBinanceTicker() {
   try {
-    const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
-    if (!res.ok) throw new Error('Binance ticker request failed');
-    const data = await res.json();
+    const data = await fetchFromBinance('/api/v3/ticker/24hr?symbol=PAXGUSDT');
     
     STATE.goldPrice = parseFloat(data.lastPrice);
     STATE.priceChange24h = parseFloat(data.priceChangePercent);
@@ -377,9 +410,7 @@ async function fetchCoingeckoPriceFallback() {
  */
 async function fetchBinanceKlines() {
   try {
-    const res = await fetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
-    if (!res.ok) throw new Error('Binance klines failed');
-    const data = await res.json();
+    const data = await fetchFromBinance('/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24');
     
     const labels = [];
     const prices = [];
@@ -391,7 +422,36 @@ async function fetchBinanceKlines() {
     
     renderPriceChart(labels, prices);
   } catch (err) {
-    console.error('Failed to load klines chart:', err);
+    console.error('Failed to load Binance klines chart, trying Coingecko fallback:', err);
+    fetchCoingeckoKlinesFallback();
+  }
+}
+
+/**
+ * Coingecko fallback for PAXG klines
+ */
+async function fetchCoingeckoKlinesFallback() {
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/coins/pax-gold/market_chart?vs_currency=usd&days=1');
+    if (!res.ok) throw new Error('Coingecko market chart failed');
+    const data = await res.json();
+    
+    const pricesData = data.prices || [];
+    const sliced = pricesData.slice(-24);
+    
+    const labels = [];
+    const prices = [];
+    sliced.forEach(item => {
+      const time = new Date(item[0]);
+      labels.push(time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      prices.push(item[1]); // Close prices
+    });
+    
+    if (prices.length > 0) {
+      renderPriceChart(labels, prices);
+    }
+  } catch (err) {
+    console.error('All chart APIs failed:', err);
   }
 }
 
