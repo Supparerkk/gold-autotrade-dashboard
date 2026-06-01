@@ -1,0 +1,750 @@
+<!-- 
+  File: index.html
+  Description: Gold AutoTrader Dashboard main user interface.
+  Built with HTML5, CSS3, and JavaScript, styled in dark mode with responsive design.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gold AutoTrader Dashboard — PAXG/USDT Spot Webhook Monitor</title>
+  <meta name="description" content="Dashboard monitoring PAXG/USDT Spot trade signals managed by n8n webhooks and telegram alerts.">
+  
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Toast Notification System -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Main Grid Layout -->
+  <div class="app-layout">
+    
+    <!-- HEADER BAR -->
+    <header class="header">
+      <div class="header-container">
+        
+        <!-- Left Brand Logo -->
+        <div class="brand">
+          <div class="logo-wrapper">
+            <i class="fa-solid fa-robot logo-icon"></i>
+          </div>
+          <div class="brand-text">
+            <h1 class="brand-title">Gold AutoTrader</h1>
+            <p class="brand-subtitle">PAXG/USDT Spot</p>
+          </div>
+        </div>
+
+        <!-- Center Navigation Tabs -->
+        <nav class="nav-tabs">
+          <button id="tabMonitor" class="tab-btn active" onclick="switchTab('monitor')">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Monitor</span>
+          </button>
+          <button id="tabLogs" class="tab-btn" onclick="switchTab('logs')">
+            <i class="fa-solid fa-receipt"></i>
+            <span>Ledger Logs</span>
+          </button>
+          <button id="tabSettings" class="tab-btn" onclick="switchTab('settings')">
+            <i class="fa-solid fa-gears"></i>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <!-- Right System Indicators -->
+        <div class="header-stats">
+          <div class="exchange-rate-box">
+            <span class="stat-label">USD/THB RATE</span>
+            <span id="headerExchangeRate" class="stat-value">--.-- THB</span>
+          </div>
+          
+          <!-- Connection Badge with Pulse Dot & Custom Tooltip -->
+          <div id="connectionStatusBadge" class="connection-badge bg-disconnected" onclick="triggerManualPing()">
+            <span class="pulse-wrapper">
+              <span id="connectionPulse" class="pulse-dot bg-disconnected"></span>
+              <span id="connectionDot" class="solid-dot bg-disconnected"></span>
+            </span>
+            <span id="connectionText">DISCONNECTED</span>
+            
+            <!-- Connection Info Tooltip -->
+            <div class="connection-tooltip">
+              <div class="tooltip-row">
+                <span>Last successful ping:</span>
+                <span id="tooltipLastPing" class="tooltip-val font-mono">Never</span>
+              </div>
+              <div class="tooltip-row">
+                <span>Latency:</span>
+                <span id="tooltipLatency" class="tooltip-val font-mono">—</span>
+              </div>
+              <div class="tooltip-row">
+                <span>Endpoint:</span>
+                <span id="tooltipEndpoint" class="tooltip-val font-mono text-truncate">—</span>
+              </div>
+              <div class="tooltip-footer">Click badge to manual ping</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </header>
+
+    <!-- VIEWPORT MAIN CONTAINER -->
+    <main class="main-viewport">
+      
+      <!-- ==================== MONITOR TAB ==================== -->
+      <section id="viewMonitor" class="tab-view active">
+        <div class="monitor-grid">
+          
+          <!-- Left Main Area (Chart & Details) -->
+          <div class="monitor-left">
+            
+            <!-- Price Chart Card -->
+            <div class="card price-chart-card">
+              <div class="card-header">
+                <div class="title-with-desc">
+                  <h2 class="card-title">Live Price Chart</h2>
+                  <span id="chartSubtext" class="card-subtitle">Real-time PAXG/USDT price data feed from Binance</span>
+                </div>
+                <div class="price-feed-info">
+                  <span id="liveGoldPrice" class="price-large">$--.--</span>
+                  <span id="livePriceChange" class="price-change positive">0.00%</span>
+                </div>
+              </div>
+              <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+              </div>
+              <div class="chart-footer">
+                <span id="lastUpdatedTimestamp" class="last-updated text-disconnected" title="GMT+7 Time">Last updated: checking...</span>
+              </div>
+            </div>
+
+            <!-- FEATURE 1: ACTIVE POSITION CARD -->
+            <div id="activePositionCard" class="card active-position-card">
+              <!-- Rendered dynamically via JavaScript (app.js) -->
+            </div>
+
+            <!-- Risk Metrics Panel -->
+            <div class="card risk-metrics-card">
+              <div class="card-header">
+                <h2 class="card-title"><i class="fa-solid fa-shield-halved text-blue"></i> Risk Metrics Analysis</h2>
+              </div>
+              <div class="metrics-grid">
+                <div class="metric-tile">
+                  <span class="tile-label">Capital Drawdown</span>
+                  <span id="metricDrawdown" class="tile-value text-green">0.00%</span>
+                </div>
+                <div class="metric-tile">
+                  <span class="tile-label">Profit Factor</span>
+                  <span id="metricProfitFactor" class="tile-value text-blue">0.00x</span>
+                </div>
+                <div class="metric-tile">
+                  <span class="tile-label">Win Rate</span>
+                  <span id="metricWinRate" class="tile-value text-green">0%</span>
+                </div>
+                <div class="metric-tile">
+                  <span class="tile-label">Sharpe Ratio</span>
+                  <span id="metricSharpe" class="tile-value text-blue">0.00</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Right Sidebar Area (Trading Forms) -->
+          <div class="monitor-right">
+            
+            <!-- Trading Control Panel -->
+            <div class="card control-panel-card">
+              <div class="card-header">
+                <h2 class="card-title"><i class="fa-solid fa-calculator text-blue"></i> Trading Control Panel</h2>
+              </div>
+              
+              <form id="tradeForm" class="trade-form" onsubmit="handleTradeSubmit(event)">
+                <!-- Direction Switch -->
+                <div class="direction-switch">
+                  <button type="button" id="dirLong" class="dir-btn active bg-green" onclick="setDirection('LONG')">LONG</button>
+                  <button type="button" id="dirShort" class="dir-btn" onclick="setDirection('SHORT')">SHORT</button>
+                </div>
+
+                <!-- Input Entry Price -->
+                <div class="form-group">
+                  <div class="label-row">
+                    <label for="entryPrice">Entry Price (USDT)</label>
+                    <button type="button" class="btn-text-link" onclick="fillLiveEntryPrice()">Use Live Price</button>
+                  </div>
+                  <input type="number" id="entryPrice" step="0.01" min="1" required placeholder="0.00" oninput="calculateProjections()">
+                </div>
+
+                <!-- Position Size Slider -->
+                <div class="form-group">
+                  <div class="label-row">
+                    <label>Position Size (% of Capital)</label>
+                    <span id="posSizeLabel" class="val-badge">50%</span>
+                  </div>
+                  <input type="range" id="positionSizePct" min="1" max="100" value="50" class="slider-input" oninput="updatePosSizeSlider(this.value)">
+                </div>
+
+                <!-- Stop Loss Mode -->
+                <div class="form-group">
+                  <div class="label-row">
+                    <label for="slValue">Stop Loss Target</label>
+                    <div class="toggle-pill-group">
+                      <button type="button" id="slTypePct" class="pill-btn active" onclick="setSlType('pct')">%</button>
+                      <button type="button" id="slTypePrice" class="pill-btn" onclick="setSlType('price')">Price</button>
+                    </div>
+                  </div>
+                  <div class="input-suffix-wrapper">
+                    <input type="number" id="slValue" step="0.01" min="0.01" value="2.00" required placeholder="2.0" oninput="calculateProjections()">
+                    <span id="slSuffix" class="input-suffix">%</span>
+                  </div>
+                </div>
+
+                <!-- Take Profits Target Inputs -->
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="tp1Pct">Take Profit 1 (% TP1)</label>
+                    <div class="input-suffix-wrapper">
+                      <input type="number" id="tp1Pct" step="0.01" min="0.1" value="4.00" required oninput="calculateProjections()">
+                      <span class="input-suffix">%</span>
+                    </div>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="tp2Pct">Take Profit 2 (% TP2)</label>
+                    <div class="input-suffix-wrapper">
+                      <input type="number" id="tp2Pct" step="0.01" min="0.1" value="8.00" required oninput="calculateProjections()">
+                      <span class="input-suffix">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Projections Summary Section -->
+                <div class="projection-container">
+                  <div class="proj-header">
+                    <span>Projection Summary</span>
+                    <span id="projCapitalUsdt" class="text-muted">Capital: $--.-- USDT</span>
+                  </div>
+                  <div class="proj-body">
+                    <div class="proj-row text-red">
+                      <span>Loss at SL (Full exit)</span>
+                      <span id="projSlLoss">-$0.00 USDT (-0 THB)</span>
+                    </div>
+                    <div class="proj-row text-yellow">
+                      <span id="projTp1Label">TP1 Target ($0.00)</span>
+                      <span id="projTp1Profit">+$0.00 USDT (+0 THB)</span>
+                    </div>
+                    <div class="proj-row text-green">
+                      <span id="projTp2Label">TP2 Target ($0.00)</span>
+                      <span id="projTp2Profit">+$0.00 USDT (+0 THB)</span>
+                    </div>
+                    <div class="proj-row border-top text-white font-bold">
+                      <span class="text-blue">Max Profit (Both TPs Hit)</span>
+                      <span id="projTotalProfit">+$0.00 USDT (+0 THB)</span>
+                    </div>
+                  </div>
+                  <div class="proj-footer">
+                    <span id="projRiskReward">TP1 R:R = 0.0x | TP2 Total R:R = 0.0x</span>
+                  </div>
+                </div>
+
+                <!-- FEATURE 8: Risk Warning Banner -->
+                <div id="riskWarningBanner" class="warning-banner hidden">
+                  <!-- Injected dynamically via app.js -->
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="executeTradeBtn" class="btn btn-execute disabled" disabled>
+                  <i class="fa-solid fa-play"></i>
+                  <span>Execute Trade Signal</span>
+                </button>
+              </form>
+
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== LEDGER LOGS TAB ==================== -->
+      <section id="viewLogs" class="tab-view">
+        <div class="logs-container space-y-6">
+          
+          <!-- Performance Summary Row -->
+          <div class="card performance-card">
+            <div class="card-header">
+              <h2 class="card-title">Performance Summary</h2>
+            </div>
+            <div class="perf-metrics-grid">
+              <div class="perf-tile">
+                <span class="perf-label">Total Realized PnL</span>
+                <span id="perfRealizedPnl" class="perf-value text-green">+$0.00</span>
+                <span id="perfRealizedPnlThb" class="perf-subtext">0 THB</span>
+              </div>
+              <div class="perf-tile">
+                <span class="perf-label">Total Volume Traded</span>
+                <span id="perfVolume" class="perf-value text-blue">$0.00</span>
+                <span class="perf-subtext">USDT Vol</span>
+              </div>
+              <div class="perf-tile">
+                <span class="perf-label">Profit Trades</span>
+                <span id="perfWins" class="perf-value text-green">0</span>
+                <span id="perfWinsSub" class="perf-subtext">Win rate: 0%</span>
+              </div>
+              <div class="perf-tile">
+                <span class="perf-label">Loss Trades</span>
+                <span id="perfLosses" class="perf-value text-red">0</span>
+                <span id="perfLossesSub" class="perf-subtext">Max consecutive: 0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row (Equity and Win/Loss) -->
+          <div class="charts-row">
+            <!-- Equity Curve Card -->
+            <div class="card chart-card-half">
+              <div class="card-header">
+                <h2 class="card-title">Equity Curve</h2>
+              </div>
+              <div class="chart-container-small">
+                <canvas id="equityChart"></canvas>
+              </div>
+            </div>
+            
+            <!-- Win/Loss Ring Chart Card -->
+            <div class="card chart-card-half">
+              <div class="card-header">
+                <h2 class="card-title">Win/Loss Distribution</h2>
+              </div>
+              <div class="chart-container-small">
+                <canvas id="winLossChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trade History Table Card -->
+          <div class="card trade-history-card">
+            <div class="card-header flex-header">
+              <div class="title-with-desc">
+                <h2 class="card-title">Trade History Log</h2>
+                <p class="card-subtitle">Detailed history of all executed spot trades. Click rows to view detailed notes.</p>
+              </div>
+              <div class="header-actions">
+                <button type="button" id="csvExportBtn" class="btn btn-secondary text-xs" onclick="exportToCSV()" disabled>
+                  <i class="fa-solid fa-download"></i>
+                  <span>Export CSV</span>
+                </button>
+                <button type="button" id="clearLogsBtn" class="btn btn-danger-soft text-xs" onclick="handleClearLogs()">
+                  <span>Clear Logs</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Filters Bar -->
+            <div class="filters-bar">
+              <div class="search-input-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" id="logSearch" class="filter-input-search" placeholder="Search notes, symbol, IDs..." oninput="filterTradeLogs()">
+              </div>
+              
+              <div class="filter-select-wrapper">
+                <select id="filterDirection" class="filter-select" onchange="filterTradeLogs()">
+                  <option value="ALL">All Directions</option>
+                  <option value="LONG">LONG</option>
+                  <option value="SHORT">SHORT</option>
+                </select>
+              </div>
+
+              <div class="filter-select-wrapper">
+                <select id="filterStatus" class="filter-select" onchange="filterTradeLogs()">
+                  <option value="ALL">All Statuses</option>
+                  <option value="OPEN">OPEN</option>
+                  <option value="TP1_HIT">TP1 HIT</option>
+                  <option value="TP2_HIT">TP2 HIT</option>
+                  <option value="SL_HIT">SL HIT</option>
+                  <option value="CLOSED">CLOSED</option>
+                </select>
+              </div>
+
+              <div class="date-input-wrapper">
+                <span class="date-label">From</span>
+                <input type="date" id="filterStartDate" class="filter-date" onchange="filterTradeLogs()">
+              </div>
+
+              <div class="date-input-wrapper">
+                <span class="date-label">To</span>
+                <input type="date" id="filterEndDate" class="filter-date" onchange="filterTradeLogs()">
+              </div>
+            </div>
+
+            <!-- Trade logs HTML Table -->
+            <div class="table-scroll-container">
+              <table id="tradeLogsTable" class="trade-table">
+                <thead>
+                  <tr>
+                    <th>Date / Time</th>
+                    <th>Symbol</th>
+                    <th>Direction</th>
+                    <th class="text-right">Entry Price</th>
+                    <th class="text-right">SL Target</th>
+                    <th class="text-center">TP1 Hit</th>
+                    <th class="text-center">TP2 Hit</th>
+                    <th class="text-right">Exit Price</th>
+                    <th class="text-right">PnL (USDT/THB)</th>
+                    <th class="text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="tradeLogsTableBody">
+                  <tr>
+                    <td colspan="10" class="table-empty">Loading trade records...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== SETTINGS TAB ==================== -->
+      <section id="viewSettings" class="tab-view">
+        <div class="settings-container max-w-3xl mx-auto space-y-6">
+          
+          <div class="card settings-card">
+            <div class="card-header">
+              <h2 class="card-title"><i class="fa-solid fa-gears text-blue"></i> n8n & Broker Core Settings</h2>
+            </div>
+            
+            <form id="settingsForm" class="settings-form" onsubmit="handleSettingsSave(event)">
+              
+              <!-- Simulation Sandbox Toggle -->
+              <div class="settings-sandbox-alert">
+                <div class="alert-content">
+                  <span class="alert-bold">Simulated Sandbox Mode</span>
+                  <p class="alert-desc">
+                    When enabled, trades are executed inside the browser storage without making calls to n8n or executing orders on the exchange. Recommended for offline testing and verification.
+                  </p>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="settingsSimulated">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <!-- n8n Webhook Url Section -->
+              <div class="settings-section">
+                <h3 class="settings-section-title"><i class="fa-solid fa-link text-slate-400"></i> n8n Webhook Configuration</h3>
+                
+                <div class="form-grid">
+                  <div class="form-group span-2">
+                    <label for="settingsN8nUrl">n8n Base URL</label>
+                    <input type="text" id="settingsN8nUrl" required placeholder="https://n8n.goldautotrader.cloud">
+                    <span class="input-helper">Enter the URL where your n8n VPS Docker service is deployed.</span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsExecPath">Execute Trade Webhook Path</label>
+                    <input type="text" id="settingsExecPath" required placeholder="/webhook/gold-trade-execute">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsClosePath">Close Trade Webhook Path</label>
+                    <input type="text" id="settingsClosePath" required placeholder="/webhook/gold-trade-close">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsStatusPath">Fetch Position Webhook Path</label>
+                    <input type="text" id="settingsStatusPath" required placeholder="/webhook/gold-position-status">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsWebhookSecret">X-Webhook-Secret Token</label>
+                    <input type="password" id="settingsWebhookSecret" placeholder="••••••••••••••••">
+                    <span class="input-helper text-blue">⚠️ Stored securely (obfuscated) in Local Storage. Never logged.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- FEATURE 4: Telegram Alert Toggle Panel -->
+              <div class="settings-section">
+                <h3 class="settings-section-title"><i class="fa-solid fa-bell text-slate-400"></i> Notification Preferences</h3>
+                
+                <div class="telegram-grid">
+                  <!-- Left Checkboxes -->
+                  <div class="telegram-alert-toggles bg-slate-dark">
+                    <span class="toggles-header">Telegram Alert Types</span>
+                    
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefTradeOpened">
+                      <span class="checkbox-label">🟢 Trade Opened</span>
+                    </label>
+
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefStopLossHit">
+                      <span class="checkbox-label">🔴 Stop Loss Hit</span>
+                    </label>
+
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefTp1Hit">
+                      <span class="checkbox-label">🟡 TP1 Hit</span>
+                    </label>
+
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefTp2Hit">
+                      <span class="checkbox-label">🟢 TP2 Hit</span>
+                    </label>
+
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefDailySummary">
+                      <span class="checkbox-label">🔵 Daily Summary (23:00 Bangkok)</span>
+                    </label>
+
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="prefDisconnection">
+                      <span class="checkbox-label">⚠️ Disconnection Alert (>2 mins)</span>
+                    </label>
+                  </div>
+
+                  <!-- Right Chat ID & Test Controls -->
+                  <div class="telegram-test-panel bg-slate-dark">
+                    <div class="form-group">
+                      <label for="settingsTelegramToken">Telegram Bot Token (Optional)</label>
+                      <input type="password" id="settingsTelegramToken" placeholder="••••••••••••••••">
+                    </div>
+                    
+                    <div class="form-group">
+                      <label for="settingsTelegramChatId">Telegram Chat ID</label>
+                      <input type="text" id="settingsTelegramChatId" placeholder="e.g. -100123456789">
+                      <span class="input-helper">Group or direct chat receiver ID. Stored obfuscated.</span>
+                    </div>
+
+                    <button type="button" id="testTelegramBtn" class="btn btn-secondary-soft w-full text-xs" onclick="sendTestTelegramMessage()">
+                      <span>Test Notification</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Exchange Rate Settings -->
+              <div class="settings-section">
+                <h3 class="settings-section-title"><i class="fa-solid fa-coins text-slate-400"></i> Exchange Rate Settings</h3>
+                
+                <div class="form-grid">
+                  <div class="form-group flex-row-settings bg-slate-dark">
+                    <div class="desc-col">
+                      <span class="row-label">Manual Exchange Rate Override</span>
+                      <span class="row-desc">Use custom rate instead of automated network fetch.</span>
+                    </div>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="settingsUseManualRate" onchange="toggleManualRateInput(this.checked)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsManualRate">THB per 1 USDT</label>
+                    <input type="number" id="settingsManualRate" step="0.01" min="1" placeholder="36.50" disabled>
+                  </div>
+                </div>
+              </div>
+
+              <!-- FEATURE 6: Max Risk Per Trade & Open Positions Setting -->
+              <div class="settings-section">
+                <h3 class="settings-section-title"><i class="fa-solid fa-sliders text-slate-400"></i> Risk Management Limits</h3>
+                
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="settingsMaxRisk">Max Risk Per Trade (%)</label>
+                    <input type="number" id="settingsMaxRisk" step="0.1" min="0.1" max="10" placeholder="2.0">
+                    <span class="input-helper">Limit entries exceeding this loss % (range: 0.1% - 10%).</span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsMaxPositions">Max Open Positions</label>
+                    <input type="number" id="settingsMaxPositions" min="1" max="5" placeholder="1">
+                    <span class="input-helper">Disable execute button once position threshold is hit.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Exchange API status -->
+              <div class="settings-section">
+                <h3 class="settings-section-title"><i class="fa-solid fa-shield-halved text-slate-400"></i> Exchange API Security status</h3>
+                <div class="status-panel-card bg-slate-dark">
+                  <div class="status-row">
+                    <span>API Key (Hostinger Environment):</span>
+                    <span id="apiStatusKey" class="status-badge-env bg-disconnected">MISSING</span>
+                  </div>
+                  <div class="status-row">
+                    <span>API Secret (Hostinger Environment):</span>
+                    <span id="apiStatusSecret" class="status-badge-env bg-disconnected">MISSING</span>
+                  </div>
+                  <div class="status-alert">
+                    <i class="fa-solid fa-triangle-exclamation text-blue mt-0.5"></i>
+                    <span>
+                      Binance API keys must be defined securely on your Hostinger n8n environment variables. Never configure plain-text API secrets on the client browser side.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Form footer actions -->
+              <div class="settings-footer">
+                <div class="test-actions-group">
+                  <button type="button" id="testN8nBtn" class="btn btn-secondary" onclick="testN8nConnection()">
+                    <span>Test Connection</span>
+                  </button>
+                </div>
+                <button type="submit" class="btn btn-execute">
+                  <span>Save Configuration</span>
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- FOOTER SECTION -->
+    <footer class="footer">
+      <p>© 2026 Gold Auto Trading Dashboard. Built securely for GitHub Pages deployment. Paxg/Usdt Spot Webhooks.</p>
+    </footer>
+
+  </div>
+
+  <!-- FEATURE 2: CLOSE POSITION CONFIRM MODAL -->
+  <div id="closePositionModal" class="modal-overlay hidden" onclick="closeConfirmModal()">
+    <div class="modal-card border-red" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title text-red"><i class="fa-solid fa-triangle-exclamation"></i> ⚠️ Confirm Close Position</h3>
+      </div>
+      
+      <!-- Summaries -->
+      <div id="modalTradeSummary" class="modal-summary">
+        <!-- Injected dynamically via JS -->
+      </div>
+      
+      <p class="modal-warning">This action will immediately close your position and cannot be undone.</p>
+      
+      <div class="modal-buttons">
+        <button type="button" class="btn btn-secondary-flat" onclick="closeConfirmModal()">Cancel</button>
+        <button type="button" id="modalConfirmCloseBtn" class="btn btn-danger" onclick="confirmCloseActivePosition()">Confirm Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURE 5: TRADE HISTORY DETAIL MODAL -->
+  <div id="tradeDetailModal" class="modal-overlay hidden" onclick="closeDetailModal()">
+    <div class="modal-card modal-card-wide border-blue" onclick="event.stopPropagation()">
+      <!-- X close button -->
+      <button class="modal-x" onclick="closeDetailModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-header">
+        <h3 id="detailModalTitle" class="modal-title text-blue">Trade Detail — #00000000</h3>
+      </div>
+      
+      <div class="modal-body-grid">
+        <!-- Left: Trade Info -->
+        <div class="modal-info-column bg-slate-dark">
+          <span class="column-header">Trade Info</span>
+          <div class="info-row">
+            <span>Symbol:</span>
+            <span id="detailSymbol" class="val-mono">PAXGUSDT</span>
+          </div>
+          <div class="info-row">
+            <span>Direction:</span>
+            <span id="detailDirection" class="val-badge text-green">LONG</span>
+          </div>
+          <div class="info-row">
+            <span>Status:</span>
+            <span id="detailStatus" class="val-badge text-blue">CLOSED</span>
+          </div>
+          <div class="info-row">
+            <span>Open Time:</span>
+            <span id="detailOpenTime">2026-06-01 10:11:00</span>
+          </div>
+          <div class="info-row">
+            <span>Close Time:</span>
+            <span id="detailCloseTime">2026-06-01 12:45:00</span>
+          </div>
+          <div class="info-row">
+            <span>Duration:</span>
+            <span id="detailDuration" class="font-bold">2h 34m</span>
+          </div>
+        </div>
+        
+        <!-- Right: Price Info -->
+        <div class="modal-info-column bg-slate-dark">
+          <span class="column-header">Price Info</span>
+          <div class="info-row">
+            <span>Entry Price:</span>
+            <span id="detailEntryPrice" class="val-mono font-bold">$0.00</span>
+          </div>
+          <div class="info-row">
+            <span>Exit Price:</span>
+            <span id="detailExitPrice" class="val-mono font-bold">$0.00</span>
+          </div>
+          <div class="info-row">
+            <span>Stop Loss:</span>
+            <span id="detailSlPrice" class="val-mono text-red">$0.00</span>
+          </div>
+          <div class="info-row">
+            <span>TP1 hit:</span>
+            <span id="detailTp1Hit" class="text-green font-bold">✅ HIT</span>
+          </div>
+          <div class="info-row">
+            <span>TP2 hit:</span>
+            <span id="detailTp2Hit" class="text-red font-bold">❌ NOT HIT</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- PnL summary cards inside modal -->
+      <div class="modal-pnl-summary bg-slate-dark">
+        <div class="pnl-summary-tile">
+          <span class="tile-header">PnL in USDT</span>
+          <span id="detailPnlUsdt" class="tile-body text-green">+$0.00 (+0.00%)</span>
+        </div>
+        <div class="pnl-summary-tile">
+          <span class="tile-header">PnL in THB</span>
+          <span id="detailPnlThb" class="tile-body text-green">0 THB</span>
+        </div>
+        <div class="pnl-summary-tile">
+          <span class="tile-header">Return on Capital</span>
+          <span id="detailReturnPct" class="tile-body text-green">0.00%</span>
+        </div>
+      </div>
+
+      <!-- Notes Field -->
+      <div class="modal-notes-area">
+        <label for="detailNotes" class="notes-label"><i class="fa-solid fa-file-invoice text-slate-500"></i> Trade Notes & Comments</label>
+        <textarea id="detailNotes" class="notes-textarea" placeholder="Enter trade review logs, lessons learned or observations..."></textarea>
+      </div>
+      
+      <div class="modal-buttons pt-4 border-top">
+        <button type="button" class="btn btn-secondary-flat" onclick="closeDetailModal()">Close</button>
+        <button type="button" class="btn btn-execute" onclick="saveSelectedTradeNotes()">Save Notes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript File -->
+  <script src="app.js"></script>
+</body>
+</html>
