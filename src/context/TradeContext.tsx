@@ -68,6 +68,20 @@ export interface KLine {
   close: number;
 }
 
+export interface RegimeData {
+  status: 'TRENDING_UP' | 'TRENDING_DOWN' | 'RANGING' | 'HIGH_VOLATILITY' | 'NEUTRAL';
+  label: string;
+  description: string;
+  adx: number;
+  atr: number;
+}
+
+export interface FnGData {
+  value: number;
+  classification: string;
+  timestamp: string;
+}
+
 interface TradeContextType {
   goldPrice: number;
   priceChange24h: number;
@@ -82,7 +96,11 @@ interface TradeContextType {
   latency: number | null;
   lastUpdatedTime: Date | null;
   dailyLossLimitReached: boolean; // New context variable
+  regimeData: RegimeData | null;
+  fngData: FnGData | null;
+  botStatus: 'active' | 'paused';
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
+  updateBotStatus: (status: 'active' | 'paused') => Promise<void>;
   executeTrade: (tradeParams: {
     direction: 'LONG' | 'SHORT';
     entry_price: number;
@@ -134,6 +152,12 @@ const defaultSettings: Settings = {
  * handles request timeouts, and returns safe nullable responses on failure.
  */
 export async function secureFetch(url: string, options: RequestInit = {}): Promise<Response | null> {
+  // Block execution if bot is paused
+  const isExecuteCall = url.includes('/gold-trade-execute') || url.includes('/api/trade/execute');
+  if (isExecuteCall && typeof window !== 'undefined' && localStorage.getItem('gold_bot_status') === 'paused') {
+    throw new Error('Bot is paused');
+  }
+
   // 1. Validate URL is https:// or relative /api/ path
   if (!url.startsWith('https://') && !url.startsWith('/api/')) {
     console.error(`[Security] Insecure endpoint blocked: ${url}`);
@@ -210,6 +234,11 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   const [latency, setLatency] = useState<number | null>(null);
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
   const [dailyLossLimitReached, setDailyLossLimitReached] = useState<boolean>(false);
+
+  // New market intelligence and bot status states
+  const [regimeData, setRegimeData] = useState<RegimeData | null>(null);
+  const [fngData, setFngData] = useState<FnGData | null>(null);
+  const [botStatus, setBotStatus] = useState<'active' | 'paused'>('active');
 
   // Auto-save active trade config to localStorage
   useEffect(() => {
@@ -423,6 +452,35 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Bot Status initialization and updater
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('gold_bot_status');
+      if (stored === 'paused') {
+        setBotStatus('paused');
+      } else {
+        setBotStatus('active');
+        localStorage.setItem('gold_bot_status', 'active');
+      }
+    }
+  }, []);
+
+  const updateBotStatus = async (status: 'active' | 'paused') => {
+    setBotStatus(status);
+    localStorage.setItem('gold_bot_status', status);
+
+    if (!settings.isSimulatedMode) {
+      try {
+        await secureFetch(`${settings.n8nBaseUrl}/webhook/gold-bot-status`, {
+          method: 'POST',
+          body: JSON.stringify({ status }),
+        });
+      } catch (err) {
+        console.error('Failed to notify status webhook:', err);
+      }
+    }
+  };
+
   // Load Trade Logs & Active Position
   const refreshTradeLogs = useCallback(async () => {
     setIsLoading(true);
@@ -530,12 +588,13 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  // Fetch Binance Candlestick Klines (24h of 1h candles)
+  // Fetch Binance Candlestick Klines (50 of 1h candles for regime, slice 24 for chart)
   const fetchBinanceKlines = useCallback(async () => {
     try {
-      const res = await secureFetch('/api/market/klines');
+      const res = await secureFetch('/api/market/klines?limit=50');
       if (!res) throw new Error('Binance Klines API error');
       const data = await res.json();
+      
       const formatted: KLine[] = data.map((item: any) => {
         // time is index 0 (ms), open 1, high 2, low 3, close 4
         const date = new Date(item[0]);
@@ -547,10 +606,246 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
           close: parseFloat(item[4]),
         };
       });
-      setKlinesData(formatted);
+
+      // Calculate Market Regime Indicators using 50 candles
+      if (formatted.length >= 50) {
+        const closes = formatted.map(k => k.close);
+        const highs = formatted.map(k => k.high);
+        const lows = formatted.map(k => k.low);
+        const n = formatted.length;
+
+        // 1. Calculate EMA-20 of closes
+        const kCoeff = 2 / 21;
+        const ema20List: number[] = [];
+        let initialSum = 0;
+        for (let i = 0; i < 20; i++) {
+          initialSum += closes[i];
+        }
+        let currentEma = initialSum / 20;
+        for (let i = 0; i < n; i++) {
+          if (i < 19) {
+            ema20List.push(0);
+          } else if (i === 19) {
+            ema20List.push(currentEma);
+          } else {
+            currentEma = closes[i] * kCoeff + currentEma * (1 - kCoeff);
+            ema20List.push(currentEma);
+          }
+        }
+        const ema20_current = ema20List[n - 1];
+
+        // 2. Calculate TR (True Range)
+        const tr: number[] = [];
+        for (let i = 0; i < n; i++) {
+          if (i === 0) {
+            tr.push(highs[0] - lows[0]);
+          } else {
+            tr.push(Math.max(
+              highs[i] - lows[i],
+              Math.abs(highs[i] - closes[i - 1]),
+              Math.abs(lows[i] - closes[i - 1])
+            ));
+          }
+        }
+
+        // 3. Calculate ATR-14 with Wilder's smoothing
+        const atr: number[] = [];
+        let trSum = 0;
+        for (let i = 0; i < 14; i++) {
+          trSum += tr[i];
+        }
+        let currentAtr = trSum / 14;
+        for (let i = 0; i < n; i++) {
+          if (i < 13) {
+            atr.push(0);
+          } else if (i === 13) {
+            atr.push(currentAtr);
+          } else {
+            currentAtr = (currentAtr * 13 + tr[i]) / 14;
+            atr.push(currentAtr);
+          }
+        }
+
+        // 4. Calculate 20-period ATR average of ATR-14 (over last 20 periods)
+        let atrSum = 0;
+        for (let i = n - 20; i < n; i++) {
+          atrSum += atr[i];
+        }
+        const atrAverage20 = atrSum / 20;
+        const atrCurrent = atr[n - 1];
+
+        // 5. Calculate +DM and -DM
+        const plusDM: number[] = [];
+        const minusDM: number[] = [];
+        for (let i = 0; i < n; i++) {
+          if (i === 0) {
+            plusDM.push(0);
+            minusDM.push(0);
+          } else {
+            const upMove = highs[i] - highs[i - 1];
+            const downMove = lows[i - 1] - lows[i];
+            plusDM.push((upMove > downMove && upMove > 0) ? upMove : 0);
+            minusDM.push((downMove > upMove && downMove > 0) ? downMove : 0);
+          }
+        }
+
+        // 6. Smoothed TR, +DM, -DM over 14 periods (Wilder's smoothing)
+        const smoothedTR: number[] = [];
+        const smoothedPlusDM: number[] = [];
+        const smoothedMinusDM: number[] = [];
+
+        let trSum14 = 0;
+        let plusDmSum14 = 0;
+        let minusDmSum14 = 0;
+        for (let i = 0; i < 14; i++) {
+          trSum14 += tr[i];
+          plusDmSum14 += plusDM[i];
+          minusDmSum14 += minusDM[i];
+        }
+
+        let curSmoothedTR = trSum14;
+        let curSmoothedPlusDM = plusDmSum14;
+        let curSmoothedMinusDM = minusDmSum14;
+
+        for (let i = 0; i < n; i++) {
+          if (i < 13) {
+            smoothedTR.push(0);
+            smoothedPlusDM.push(0);
+            smoothedMinusDM.push(0);
+          } else if (i === 13) {
+            smoothedTR.push(curSmoothedTR);
+            smoothedPlusDM.push(curSmoothedPlusDM);
+            smoothedMinusDM.push(curSmoothedMinusDM);
+          } else {
+            curSmoothedTR = curSmoothedTR - (curSmoothedTR / 14) + tr[i];
+            curSmoothedPlusDM = curSmoothedPlusDM - (curSmoothedPlusDM / 14) + plusDM[i];
+            curSmoothedMinusDM = curSmoothedMinusDM - (curSmoothedMinusDM / 14) + minusDM[i];
+            smoothedTR.push(curSmoothedTR);
+            smoothedPlusDM.push(curSmoothedPlusDM);
+            smoothedMinusDM.push(curSmoothedMinusDM);
+          }
+        }
+
+        // 7. Calculate +DI, -DI, and DX
+        const dx: number[] = [];
+        for (let i = 0; i < n; i++) {
+          if (i < 13) {
+            dx.push(0);
+          } else {
+            const trS = smoothedTR[i];
+            const plusS = smoothedPlusDM[i];
+            const minusS = smoothedMinusDM[i];
+            
+            if (trS === 0) {
+              dx.push(0);
+            } else {
+              const plusDI = 100 * (plusS / trS);
+              const minusDI = 100 * (minusS / trS);
+              const diff = Math.abs(plusDI - minusDI);
+              const sumDI = plusDI + minusDI;
+              dx.push(sumDI === 0 ? 0 : 100 * (diff / sumDI));
+            }
+          }
+        }
+
+        // 8. Calculate ADX-14 (Wilder's Smoothing of DX)
+        const adx: number[] = [];
+        let dxSum = 0;
+        for (let i = 13; i < 27; i++) {
+          dxSum += dx[i];
+        }
+        let currentAdx = dxSum / 14;
+        for (let i = 0; i < n; i++) {
+          if (i < 26) {
+            adx.push(0);
+          } else if (i === 26) {
+            adx.push(currentAdx);
+          } else {
+            currentAdx = (currentAdx * 13 + dx[i]) / 14;
+            adx.push(currentAdx);
+          }
+        }
+        const adxCurrent = adx[n - 1];
+        const price = closes[n - 1];
+
+        // Regime Logic Rules
+        if (atrCurrent > 2 * atrAverage20) {
+          setRegimeData({
+            status: 'HIGH_VOLATILITY',
+            label: 'HIGH VOLATILITY',
+            description: 'Extreme volatility detected. Expect large swings.',
+            adx: adxCurrent,
+            atr: atrCurrent
+          });
+        } else if (adxCurrent > 25 && price > ema20_current) {
+          setRegimeData({
+            status: 'TRENDING_UP',
+            label: 'TRENDING UP',
+            description: 'Strong upward momentum. Bullish trend active.',
+            adx: adxCurrent,
+            atr: atrCurrent
+          });
+        } else if (adxCurrent > 25 && price < ema20_current) {
+          setRegimeData({
+            status: 'TRENDING_DOWN',
+            label: 'TRENDING DOWN',
+            description: 'Strong downward momentum. Bearish trend active.',
+            adx: adxCurrent,
+            atr: atrCurrent
+          });
+        } else if (adxCurrent < 20) {
+          setRegimeData({
+            status: 'RANGING',
+            label: 'RANGING / CHOPPY',
+            description: 'Consolidation phase. Range-bound trading behavior.',
+            adx: adxCurrent,
+            atr: atrCurrent
+          });
+        } else {
+          setRegimeData({
+            status: 'NEUTRAL',
+            label: 'NEUTRAL',
+            description: 'Market regime is transitional or neutral.',
+            adx: adxCurrent,
+            atr: atrCurrent
+          });
+        }
+      } else {
+        setRegimeData({
+          status: 'NEUTRAL',
+          label: 'NEUTRAL',
+          description: 'Insufficient candles to calculate indicators.',
+          adx: 0,
+          atr: 0
+        });
+      }
+
+      // Slice the last 24 candles to populate klinesData state (maintaining AreaChart width)
+      const sliced = formatted.slice(-24);
+      setKlinesData(sliced);
       setLastUpdatedTime(new Date());
     } catch (err) {
       console.error('Failed to fetch Binance klines:', err);
+    }
+  }, []);
+
+  // Fetch Fear & Greed Index (Alternative.me)
+  const fetchFearAndGreed = useCallback(async () => {
+    try {
+      const res = await fetch('https://api.alternative.me/fng/?limit=1');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data && json.data[0]) {
+          const item = json.data[0];
+          setFngData({
+            value: parseInt(item.value),
+            classification: item.value_classification,
+            timestamp: item.timestamp
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch Fear & Greed Index:', e);
     }
   }, []);
 
@@ -601,6 +896,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       await fetchExchangeRate();
       await fetchBinanceTicker();
       await fetchBinanceKlines();
+      await fetchFearAndGreed();
       await pingStatus();
       setIsLoading(false);
     };
@@ -608,8 +904,10 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
     // Poll ticker every 5 seconds
     const tickerInterval = setInterval(fetchBinanceTicker, 5000);
-    // Poll klines every 1 minute
-    const klinesInterval = setInterval(fetchBinanceKlines, 60000);
+    // Poll klines every 5 minutes (same interval as chart data refresh)
+    const klinesInterval = setInterval(fetchBinanceKlines, 300000);
+    // Poll Fear & Greed every 15 minutes
+    const fngInterval = setInterval(fetchFearAndGreed, 900000);
     // Refresh exchange rate every 10 minutes
     const rateInterval = setInterval(fetchExchangeRate, 600000);
     // Heartbeat status check every 30 seconds
@@ -618,10 +916,11 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       clearInterval(tickerInterval);
       clearInterval(klinesInterval);
+      clearInterval(fngInterval);
       clearInterval(rateInterval);
       clearInterval(heartbeatInterval);
     };
-  }, [loadSettings, fetchExchangeRate, fetchBinanceTicker, fetchBinanceKlines, pingStatus]);
+  }, [loadSettings, fetchExchangeRate, fetchBinanceTicker, fetchBinanceKlines, fetchFearAndGreed, pingStatus]);
 
   // Load trade logs once settings are loaded
   useEffect(() => {
@@ -1201,7 +1500,11 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         latency,
         lastUpdatedTime,
         dailyLossLimitReached,
+        regimeData,
+        fngData,
+        botStatus,
         updateSettings,
+        updateBotStatus,
         executeTrade,
         closeActivePosition,
         refreshTradeLogs,

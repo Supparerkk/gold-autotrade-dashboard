@@ -4,10 +4,81 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useTrade } from '@/context/TradeContext';
 import { Play, Calculator, AlertCircle } from 'lucide-react';
 
+interface TradeTemplate {
+  name: string;
+  direction: 'LONG' | 'SHORT';
+  slValue: string;
+  tp1Pct: string;
+  tp2Pct: string;
+  positionSizePct: number;
+}
+
+const defaultTemplates: TradeTemplate[] = [
+  { name: 'Conservative', direction: 'LONG', slValue: '1.5', tp1Pct: '2', tp2Pct: '4', positionSizePct: 30 },
+  { name: 'Moderate', direction: 'LONG', slValue: '2', tp1Pct: '4', tp2Pct: '8', positionSizePct: 50 },
+  { name: 'Aggressive', direction: 'LONG', slValue: '3', tp1Pct: '6', tp2Pct: '12', positionSizePct: 70 }
+];
+
 export default function TradingControlPanel() {
   const { goldPrice, exchangeRate, executeTrade, activePosition, settings, dailyLossLimitReached } = useTrade();
 
   const CAPITAL_THB = 10000;
+
+  // Templates state
+  const [templates, setTemplates] = useState<TradeTemplate[]>([]);
+  const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('gold_trade_templates');
+    if (stored) {
+      try {
+        setTemplates(JSON.parse(stored));
+      } catch (e) {
+        setTemplates(defaultTemplates);
+      }
+    } else {
+      setTemplates(defaultTemplates);
+      localStorage.setItem('gold_trade_templates', JSON.stringify(defaultTemplates));
+    }
+  }, []);
+
+  const handleSaveTemplate = () => {
+    const name = prompt('Enter a name for this template:');
+    if (!name) return;
+    const exists = templates.some(t => t.name.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      alert('A template with this name already exists.');
+      return;
+    }
+    const newTemplate: TradeTemplate = {
+      name,
+      direction,
+      slValue,
+      tp1Pct,
+      tp2Pct,
+      positionSizePct
+    };
+    const updated = [...templates, newTemplate];
+    setTemplates(updated);
+    localStorage.setItem('gold_trade_templates', JSON.stringify(updated));
+  };
+
+  const handleDeleteTemplate = (e: React.MouseEvent, templateName: string) => {
+    e.stopPropagation();
+    const updated = templates.filter(t => t.name !== templateName);
+    setTemplates(updated);
+    localStorage.setItem('gold_trade_templates', JSON.stringify(updated));
+  };
+
+  const handleApplyTemplate = (t: TradeTemplate) => {
+    setDirection(t.direction);
+    setSlValue(t.slValue);
+    setSlType('pct');
+    setTp1Pct(t.tp1Pct);
+    setTp2Pct(t.tp2Pct);
+    setPositionSizePct(t.positionSizePct);
+    setShowTemplatesDropdown(false);
+  };
 
   // Form state
   const [direction, setDirection] = useState<'LONG' | 'SHORT'>('LONG');
@@ -606,31 +677,84 @@ export default function TradingControlPanel() {
           </div>
         )}
 
-        {/* Execute Button */}
-        <button
-          type="submit"
-          disabled={isExecuteDisabled}
-          className={`flex w-full h-11 items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer text-xs ${getButtonColorClass()}`}
-        >
-          {isExecuting ? (
-            <span className="flex items-center gap-2">
-              <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Executing trade...
-            </span>
-          ) : cooldown ? (
-            'Cooldown Active (3s)...'
-          ) : activePosition ? (
-            'Max positions reached (1/1)'
-          ) : (
-            <>
-              <Play className="h-4 w-4 fill-current" />
-              <span>{getButtonText()}</span>
-            </>
+        {/* Execute and Templates Row */}
+        <div className="relative flex gap-2">
+          <button
+            type="submit"
+            disabled={isExecuteDisabled}
+            className={`flex-1 flex h-11 items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer text-xs ${getButtonColorClass()}`}
+          >
+            {isExecuting ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Executing trade...
+              </span>
+            ) : cooldown ? (
+              'Cooldown Active (3s)...'
+            ) : activePosition ? (
+              'Max positions reached (1/1)'
+            ) : (
+              <>
+                <Play className="h-4 w-4 fill-current" />
+                <span>{getButtonText()}</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowTemplatesDropdown(!showTemplatesDropdown)}
+            className="flex h-11 px-4 items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition-all duration-300 cursor-pointer text-xs font-semibold"
+          >
+            Templates
+          </button>
+
+          {/* Templates Dropdown Menu */}
+          {showTemplatesDropdown && (
+            <div className="absolute bottom-full right-0 mb-2 w-64 rounded-xl border border-slate-800 bg-slate-950 p-3.5 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200 z-50">
+              <div className="flex justify-between items-center mb-2 border-b border-slate-900 pb-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Templates</span>
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  className="text-[9px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-wider"
+                >
+                  + Save Current
+                </button>
+              </div>
+              
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {templates.map((t) => (
+                  <div
+                    key={t.name}
+                    onClick={() => handleApplyTemplate(t)}
+                    className="group flex justify-between items-center p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 border border-slate-800/40 hover:border-slate-700/60 cursor-pointer transition-all duration-200"
+                  >
+                    <div className="flex flex-col gap-0.5 text-left">
+                      <span className="text-xs font-bold text-slate-200">{t.name}</span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {t.direction} | SL {t.slValue}% | Size {t.positionSizePct}%
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteTemplate(e, t.name)}
+                      className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-rose-500 hover:text-rose-400 px-1 py-0.5 transition-opacity"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                {templates.length === 0 && (
+                  <p className="text-[10px] text-slate-500 italic text-center py-2">No templates saved</p>
+                )}
+              </div>
+            </div>
           )}
-        </button>
+        </div>
       </form>
 
       {feedback && (

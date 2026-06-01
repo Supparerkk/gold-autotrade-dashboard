@@ -1,6 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const symbol = searchParams.get('symbol') || 'PAXGUSDT';
+  const interval = searchParams.get('interval') || '1h';
+  const limit = searchParams.get('limit') || '24';
+
   const endpoints = [
     'https://api.binance.com',
     'https://api1.binance.com',
@@ -13,7 +18,7 @@ export async function GET() {
   let lastError = null;
   for (const endpoint of endpoints) {
     try {
-      const res = await fetch(`${endpoint}/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=24`, {
+      const res = await fetch(`${endpoint}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`, {
         next: { revalidate: 10 },
         signal: AbortSignal.timeout(4000)
       });

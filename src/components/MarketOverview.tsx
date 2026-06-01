@@ -6,7 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 
 export default function MarketOverview() {
-  const { goldPrice, priceChange24h, klinesData, isLoading, lastUpdatedTime } = useTrade();
+  const { goldPrice, priceChange24h, klinesData, isLoading, lastUpdatedTime, regimeData } = useTrade();
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'neutral'>('neutral');
 
@@ -101,6 +101,24 @@ export default function MarketOverview() {
       </div>
     );
   }
+
+  const getRegimeColorClasses = () => {
+    if (!regimeData) return { bg: 'bg-slate-500/10', text: 'text-slate-400 border-slate-500/20' };
+    switch (regimeData.status) {
+      case 'HIGH_VOLATILITY':
+        return { bg: 'bg-orange-500/10', text: 'text-orange-400 border-orange-500/20' };
+      case 'TRENDING_UP':
+        return { bg: 'bg-emerald-500/10', text: 'text-emerald-400 border-emerald-500/20' };
+      case 'TRENDING_DOWN':
+        return { bg: 'bg-rose-500/10', text: 'text-rose-400 border-rose-500/20' };
+      case 'RANGING':
+        return { bg: 'bg-yellow-500/10', text: 'text-yellow-400 border-yellow-500/20' };
+      default:
+        return { bg: 'bg-slate-500/10', text: 'text-slate-400 border-slate-500/20' };
+    }
+  };
+
+  const regimeColors = getRegimeColorClasses();
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/60 to-slate-900/60 p-6 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-slate-700/80">
@@ -210,15 +228,35 @@ export default function MarketOverview() {
         )}
       </div>
 
-      {/* Last Updated Timestamp */}
-      <div className="mt-4 flex justify-between items-center text-[10px] text-slate-500">
-        <span>Data Feed: Binance Live</span>
-        <span 
-          className={`font-semibold cursor-help select-none transition-colors duration-300 ${getTimerColorClass()}`}
-          title={formattedISOTime}
-        >
-          Last updated: {getLastUpdatedText()}
-        </span>
+      {/* Market Regime Badge & Last Updated Timestamp */}
+      <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap gap-4 items-center justify-between text-xs text-slate-400">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Market Regime:</span>
+          {regimeData ? (
+            <div 
+              className={`cursor-help px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${regimeColors.bg} ${regimeColors.text}`}
+              title={`ADX: ${regimeData.adx.toFixed(1)} | ATR: ${regimeData.atr.toFixed(1)} | Signal basis: 1H candles`}
+            >
+              {regimeData.label}
+            </div>
+          ) : (
+            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-slate-500/10 text-slate-400 border-slate-500/20">
+              CALCULATING...
+            </div>
+          )}
+          {regimeData && (
+            <span className="text-[11px] text-slate-500 hidden sm:inline">{regimeData.description}</span>
+          )}
+        </div>
+        <div className="flex flex-col items-end text-[10px] text-slate-500 leading-normal">
+          <span>Data Feed: Binance Live</span>
+          <span 
+            className={`font-semibold cursor-help select-none transition-colors duration-300 ${getTimerColorClass()}`}
+            title={formattedISOTime}
+          >
+            Last updated: {getLastUpdatedText()}
+          </span>
+        </div>
       </div>
     </div>
   );

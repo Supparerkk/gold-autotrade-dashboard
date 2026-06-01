@@ -5,7 +5,8 @@ import { useTrade } from '@/context/TradeContext';
 import { Settings as SettingsIcon, Link2, Shield, Coins, AlertCircle, CheckCircle2, Bell, Sliders } from 'lucide-react';
 
 export default function SettingsPanel() {
-  const { settings, updateSettings, exchangeRate } = useTrade();
+  const { settings, updateSettings, exchangeRate, botStatus, updateBotStatus } = useTrade();
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false);
 
   // Local form state
   const [n8nUrl, setN8nUrl] = useState(settings.n8nBaseUrl);
@@ -208,6 +209,14 @@ export default function SettingsPanel() {
     }
   };
 
+  const handleToggleBot = () => {
+    if (botStatus === 'active') {
+      setShowPauseConfirm(true);
+    } else {
+      updateBotStatus('active');
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/60 to-slate-900/60 p-6 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-slate-700/80">
       <h3 className="text-lg font-semibold text-slate-200 flex items-center gap-2 mb-6 border-b border-slate-800 pb-4">
@@ -216,6 +225,37 @@ export default function SettingsPanel() {
       </h3>
 
       <form onSubmit={handleSave} className="space-y-6">
+        {/* Auto-Trade Bot Status Toggle */}
+        <div className={`rounded-xl border p-5 transition-all duration-300 ${
+          botStatus === 'active'
+            ? 'bg-emerald-500/10 border-emerald-500/30'
+            : 'bg-rose-500/10 border-rose-500/30'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-sm font-bold text-slate-200 uppercase tracking-wider block">Auto-Trade Bot Status</span>
+              <p className="text-xs text-slate-400">
+                {botStatus === 'active'
+                  ? '🟢 Bot is ACTIVE. Webhook executions are enabled.'
+                  : '🔴 Bot is PAUSED. Webhook executions are blocked.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleBot}
+              className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                botStatus === 'active' ? 'bg-emerald-500' : 'bg-rose-600'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  botStatus === 'active' ? 'translate-x-7' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* Simulation Toggle */}
         <div className="rounded-xl border border-dashed border-cyan-800/50 bg-cyan-950/10 p-4">
           <div className="flex items-start justify-between">
@@ -596,6 +636,39 @@ export default function SettingsPanel() {
           </div>
         </div>
       </form>
+      {/* Pause Confirmation Modal */}
+      {showPauseConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-rose-500">
+              <AlertCircle className="h-5 w-5" />
+              Pause Auto-Trade Bot?
+            </h4>
+            <p className="text-xs text-slate-300 my-4 leading-relaxed">
+              Pause auto-trade bot? Existing positions will NOT be closed.
+            </p>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowPauseConfirm(false)}
+                className="flex-1 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 font-semibold text-slate-300 border border-slate-800 transition-colors cursor-pointer text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  updateBotStatus('paused');
+                  setShowPauseConfirm(false);
+                }}
+                className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-white transition-colors cursor-pointer text-xs"
+              >
+                Confirm Pause
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -13,8 +13,23 @@ import { Bot, LineChart, History, Settings, Cpu, ShieldCheck } from 'lucide-reac
 
 function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
-  const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus } = useTrade();
+  const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus, botStatus, fngData } = useTrade();
   const [pingAge, setPingAge] = useState<string>('Never');
+
+  const fngUpdatedText = React.useMemo(() => {
+    if (!fngData || !fngData.timestamp) return 'Never';
+    const apiTimestampMs = parseInt(fngData.timestamp) * 1000;
+    const diffHrs = Math.max(0, Math.floor((Date.now() - apiTimestampMs) / 3600000));
+    return diffHrs === 0 ? 'just now' : diffHrs === 1 ? '1 hour ago' : `${diffHrs} hours ago`;
+  }, [fngData]);
+
+  const getFngColorClass = (val: number) => {
+    if (val <= 25) return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+    if (val <= 45) return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
+    if (val <= 55) return 'text-slate-400 bg-slate-400/10 border-slate-400/20';
+    if (val <= 75) return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
+    return 'text-green-400 bg-green-500/10 border-green-500/20';
+  };
 
   useEffect(() => {
     const updatePingAge = () => {
@@ -48,7 +63,20 @@ function DashboardContent() {
               <Bot className="h-5 w-5 text-slate-950 stroke-[2.5]" />
             </div>
             <div>
-              <h1 className="text-md font-black tracking-wider uppercase text-white">Gold AutoTrader</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-md font-black tracking-wider uppercase text-white">Gold AutoTrader</h1>
+                <span 
+                  className="relative flex h-2 w-2"
+                  title={botStatus === 'active' ? 'Auto-Trade Bot: ACTIVE' : 'Auto-Trade Bot: PAUSED'}
+                >
+                  <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    botStatus === 'active' ? 'animate-ping bg-emerald-400' : 'bg-rose-400'
+                  }`}></span>
+                  <span className={`relative inline-flex h-2 w-2 rounded-full ${
+                    botStatus === 'active' ? 'bg-emerald-500' : 'bg-rose-600'
+                  }`}></span>
+                </span>
+              </div>
               <p className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">PAXG/USDT Spot</p>
             </div>
           </div>
@@ -92,6 +120,20 @@ function DashboardContent() {
 
           {/* Right Status Panel */}
           <div className="hidden sm:flex items-center gap-4">
+            {/* Fear & Greed Index Widget */}
+            {fngData && (
+              <div 
+                className="flex items-center gap-2 rounded-xl border border-slate-800/80 bg-slate-900/40 px-3 py-1.5 text-xs font-bold transition-all duration-300"
+                title={`Updated: ${fngUpdatedText}`}
+              >
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">F&G:</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getFngColorClass(fngData.value)}`}>
+                  {fngData.value}
+                </span>
+                <span className="text-[10px] text-slate-400 font-semibold">{fngData.classification}</span>
+              </div>
+            )}
+
             <div className="text-right">
               <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">USD/THB RATE</span>
               <span className="text-xs font-bold text-slate-300">{exchangeRate.toFixed(2)} THB</span>
