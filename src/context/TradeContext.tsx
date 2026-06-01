@@ -122,6 +122,7 @@ interface TradeContextType {
   resetAllLogs: () => Promise<void>;
   pingStatus: () => Promise<void>;
   updateTradeNotes: (id: string, notes: string) => Promise<void>;
+  refreshAllData: () => Promise<void>;
 }
 
 const defaultSettings: Settings = {
@@ -889,6 +890,25 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Refresh all data manual trigger
+  const refreshAllData = async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        fetchExchangeRate(),
+        fetchBinanceTicker(),
+        fetchBinanceKlines(),
+        fetchFearAndGreed(),
+        pingStatus(),
+        refreshTradeLogs()
+      ]);
+    } catch (e) {
+      console.error('Error refreshing all data:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Set up Polling Intervals
   useEffect(() => {
     const init = async () => {
@@ -1512,6 +1532,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         resetAllLogs,
         pingStatus,
         updateTradeNotes,
+        refreshAllData,
       }}
     >
       {children}

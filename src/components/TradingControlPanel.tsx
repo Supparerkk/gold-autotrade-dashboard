@@ -679,30 +679,37 @@ export default function TradingControlPanel() {
 
         {/* Execute and Templates Row */}
         <div className="relative flex gap-2">
-          <button
-            type="submit"
-            disabled={isExecuteDisabled}
-            className={`flex-1 flex h-11 items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer text-xs ${getButtonColorClass()}`}
-          >
-            {isExecuting ? (
-              <span className="flex items-center gap-2">
-                <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Executing trade...
-              </span>
-            ) : cooldown ? (
-              'Cooldown Active (3s)...'
-            ) : activePosition ? (
-              'Max positions reached (1/1)'
-            ) : (
-              <>
-                <Play className="h-4 w-4 fill-current" />
-                <span>{getButtonText()}</span>
-              </>
-            )}
-          </button>
+          <div className="relative flex-1 group">
+            <button
+              id="execute-trade-btn"
+              type="submit"
+              disabled={isExecuteDisabled}
+              className={`w-full flex h-11 items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer text-xs ${getButtonColorClass()}`}
+            >
+              {isExecuting ? (
+                <span className="flex items-center gap-2">
+                  <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Executing trade...
+                </span>
+              ) : cooldown ? (
+                'Cooldown Active (3s)...'
+              ) : activePosition ? (
+                'Max positions reached (1/1)'
+              ) : (
+                <>
+                  <Play className="h-4 w-4 fill-current" />
+                  <span>{getButtonText()}</span>
+                </>
+              )}
+            </button>
+            {/* Tooltip when focused */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 hidden group-focus-within:block bg-slate-950 border border-slate-800 text-[10px] text-slate-200 px-3 py-1.5 rounded-lg shadow-xl z-50 whitespace-nowrap leading-relaxed pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-200">
+              Press Enter to confirm
+            </div>
+          </div>
 
           <button
             type="button"
@@ -754,6 +761,9 @@ export default function TradingControlPanel() {
               </div>
             </div>
           )}
+        </div>
+        <div className="text-[10px] text-slate-500 text-center mt-2 font-medium">
+          Hotkeys: <kbd className="px-1 py-0.5 rounded bg-slate-900 border border-slate-800/80 text-slate-400 font-mono">E</kbd> focus Execute button | Press <kbd className="px-1 py-0.5 rounded bg-slate-900 border border-slate-800/80 text-slate-400 font-mono">?</kbd> for help
         </div>
       </form>
 

@@ -1,14 +1,147 @@
 'use client';
 
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useTrade } from '@/context/TradeContext';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Chart } from 'chart.js/auto';
+
+interface MiniChartProps {
+  label: string;
+  data: { time: string; price: number }[];
+  isPositive: boolean;
+}
+
+function MiniChart({ label, data, isPositive }: MiniChartProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || data.length === 0) return;
+
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    if (chartRef.current) {
+      chartRef.current.destroy();
+    }
+
+    const prices = data.map(d => d.price);
+    const labels = data.map(d => d.time);
+
+    const strokeColor = isPositive ? '#10b981' : '#f43f5e';
+    const fillColor = isPositive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(244, 63, 94, 0.05)';
+
+    chartRef.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: prices,
+          borderColor: strokeColor,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          backgroundColor: fillColor,
+          tension: 0.15,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            enabled: true,
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            borderColor: 'rgba(51, 65, 85, 0.8)',
+            borderWidth: 1,
+            titleColor: '#94a3b8',
+            bodyColor: '#fff',
+            titleFont: { size: 9 },
+            bodyFont: { size: 9 },
+          }
+        },
+        scales: {
+          x: { display: false },
+          y: { display: false }
+        }
+      }
+    });
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, [data, isPositive]);
+
+  const currentPrice = data.length > 0 ? data[data.length - 1].price : 0;
+  const initialPrice = data.length > 0 ? data[0].price : 0;
+  const pnlPercent = initialPrice > 0 ? ((currentPrice - initialPrice) / initialPrice) * 100 : 0;
+
+  return (
+    <div className="flex-1 rounded-xl border border-slate-800/80 bg-slate-950/20 p-4 transition-all duration-300 hover:border-slate-700/60">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+        <div className="text-right">
+          <span className="text-xs font-bold text-slate-300">${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span className={`text-[9px] font-bold block ${pnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+          </span>
+        </div>
+      </div>
+      <div className="h-24 w-full relative">
+        <canvas ref={canvasRef} />
+      </div>
+    </div>
+  );
+}
 
 export default function MarketOverview() {
   const { goldPrice, priceChange24h, klinesData, isLoading, lastUpdatedTime, regimeData } = useTrade();
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'neutral'>('neutral');
+
+  const [klines4h, setKlines4h] = useState<any[]>([]);
+  const [klines1d, setKlines1d] = useState<any[]>([]);
+  const [isLoadingMinis, setIsLoadingMinis] = useState<boolean>(true);
+
+  const fetchMiniChartsData = async () => {
+    try {
+      const res4h = await fetch('/api/market/klines?interval=4h&limit=30');
+      const res1d = await fetch('/api/market/klines?interval=1d&limit=30');
+      
+      if (res4h.ok) {
+        const data = await res4h.json();
+        setKlines4h(data.map((item: any) => ({
+          time: new Date(item[0]).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit' }),
+          price: parseFloat(item[4]),
+        })));
+      }
+      if (res1d.ok) {
+        const data = await res1d.json();
+        setKlines1d(data.map((item: any) => ({
+          time: new Date(item[0]).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+          price: parseFloat(item[4]),
+        })));
+      }
+    } catch (e) {
+      console.error('Error fetching mini charts data:', e);
+    } finally {
+      setIsLoadingMinis(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMiniChartsData();
+    const interval = setInterval(fetchMiniChartsData, 300000); // 5 minutes refresh
+    return () => clearInterval(interval);
+  }, []);
 
   const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
 
@@ -256,6 +389,32 @@ export default function MarketOverview() {
           >
             Last updated: {getLastUpdatedText()}
           </span>
+        </div>
+      </div>
+
+      {/* Multi-Timeframe Mini Charts */}
+      <div className="mt-5 pt-5 border-t border-slate-800/80">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-3">Multi-Timeframe Context</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
+          {isLoadingMinis ? (
+            <div className="col-span-2 py-8 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin text-cyan-400" />
+              Loading mini timeframe charts...
+            </div>
+          ) : (
+            <>
+              <MiniChart 
+                label="4H Timeframe (30 candles)" 
+                data={klines4h} 
+                isPositive={klines4h.length > 1 ? klines4h[klines4h.length - 1].price >= klines4h[0].price : true} 
+              />
+              <MiniChart 
+                label="Daily Timeframe (30 candles)" 
+                data={klines1d} 
+                isPositive={klines1d.length > 1 ? klines1d[klines1d.length - 1].price >= klines1d[0].price : true} 
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

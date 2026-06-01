@@ -41,19 +41,24 @@ export default function ActivePosition() {
     return () => clearInterval(interval);
   }, [activePosition]);
 
-  // Escape key listener for modal
+  // Hotkey triggers for Modal Close and Modal Trigger
   useEffect(() => {
-    if (!showConfirm) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowConfirm(false);
+    const handleCloseTrigger = () => {
+      if (activePosition) {
+        setShowConfirm(true);
       }
     };
+    const handleCloseAll = () => {
+      setShowConfirm(false);
+    };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showConfirm]);
+    window.addEventListener('trigger-close-position-modal', handleCloseTrigger);
+    window.addEventListener('close-all-modals', handleCloseAll);
+    return () => {
+      window.removeEventListener('trigger-close-position-modal', handleCloseTrigger);
+      window.removeEventListener('close-all-modals', handleCloseAll);
+    };
+  }, [activePosition]);
 
   if (!activePosition) {
     return (
@@ -302,6 +307,9 @@ export default function ActivePosition() {
             '⛔ Close Position'
           )}
         </button>
+        <div className="text-[10px] text-slate-500 text-center font-medium">
+          Hotkey: Press <kbd className="px-1 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 font-mono">C</kbd> to trigger close flow.
+        </div>
       </div>
 
       {feedback && (

@@ -13,8 +13,9 @@ import { Bot, LineChart, History, Settings, Cpu, ShieldCheck } from 'lucide-reac
 
 function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
-  const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus, botStatus, fngData } = useTrade();
+  const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus, botStatus, fngData, refreshAllData } = useTrade();
   const [pingAge, setPingAge] = useState<string>('Never');
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   const fngUpdatedText = React.useMemo(() => {
     if (!fngData || !fngData.timestamp) return 'Never';
@@ -48,6 +49,54 @@ function DashboardContent() {
     const interval = setInterval(updatePingAge, 1000);
     return () => clearInterval(interval);
   }, [lastPingTime]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      if (key === 'e') {
+        e.preventDefault();
+        const btn = document.getElementById('execute-trade-btn');
+        if (btn) {
+          btn.focus();
+        }
+      } else if (key === 'c') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('trigger-close-position-modal'));
+      } else if (key === 'r') {
+        e.preventDefault();
+        refreshAllData();
+      } else if (key === 't') {
+        e.preventDefault();
+        setActiveTab(prev => {
+          if (prev === 'dashboard') return 'history';
+          if (prev === 'history') return 'settings';
+          return 'dashboard';
+        });
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowShortcutsHelp(false);
+        window.dispatchEvent(new CustomEvent('close-all-modals'));
+      } else if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcutsHelp(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [refreshAllData]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -222,6 +271,54 @@ function DashboardContent() {
       <footer className="mt-20 border-t border-slate-900/60 py-6 text-center text-xs text-slate-600">
         <p>© 2026 Gold Auto Trading Dashboard. Built securely with Next.js 15, TypeScript & Tailwind.</p>
       </footer>
+      {/* Keyboard Shortcuts Help Modal */}
+      {showShortcutsHelp && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+          onClick={() => setShowShortcutsHelp(false)}
+        >
+          <div 
+            className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-cyan-400">
+              Keyboard Shortcuts
+            </h4>
+            <div className="space-y-3 text-xs text-slate-300 my-4">
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Focus Execute Button</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">E</kbd>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Trigger Close Position</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">C</kbd>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Refresh All Data</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">R</kbd>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Cycle Navigation Tabs</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">T</kbd>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Close Open Modals</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">ESC</kbd>
+              </div>
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
+                <span className="text-slate-500 font-semibold">Show Shortcuts Guide</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold">?</kbd>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowShortcutsHelp(false)}
+              className="w-full mt-4 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-all cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
