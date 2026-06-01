@@ -1,25 +1,38 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useTrade, Settings } from '@/context/TradeContext';
-import { Settings as SettingsIcon, Link2, Shield, Coins, AlertCircle, CheckCircle2, Terminal } from 'lucide-react';
+import { useTrade } from '@/context/TradeContext';
+import { Settings as SettingsIcon, Link2, Shield, Coins, AlertCircle, CheckCircle2, Bell, Sliders } from 'lucide-react';
 
 export default function SettingsPanel() {
   const { settings, updateSettings, exchangeRate } = useTrade();
-  
+
   // Local form state
   const [n8nUrl, setN8nUrl] = useState(settings.n8nBaseUrl);
   const [execPath, setExecPath] = useState(settings.webhookExecutePath);
   const [closePath, setClosePath] = useState(settings.webhookClosePath);
   const [statusPath, setStatusPath] = useState(settings.webhookStatusPath);
-  
+
   const [webhookSecret, setWebhookSecret] = useState(settings.webhookSecret || '');
   const [telegramToken, setTelegramToken] = useState(settings.telegramToken || '');
-  
+  const [telegramChatId, setTelegramChatId] = useState(settings.telegramChatId || '');
+
   const [useManualRate, setUseManualRate] = useState(settings.useManualExchangeRate);
   const [manualRate, setManualRate] = useState(settings.manualExchangeRate.toString());
-  
+
   const [isSimulated, setIsSimulated] = useState(settings.isSimulatedMode);
+
+  // Notification Preferences Toggles
+  const [alertTradeOpened, setAlertTradeOpened] = useState(settings.alertTradeOpened);
+  const [alertStopLossHit, setAlertStopLossHit] = useState(settings.alertStopLossHit);
+  const [alertTp1Hit, setAlertTp1Hit] = useState(settings.alertTp1Hit);
+  const [alertTp2Hit, setAlertTp2Hit] = useState(settings.alertTp2Hit);
+  const [alertDailySummary, setAlertDailySummary] = useState(settings.alertDailySummary);
+  const [alertDisconnection, setAlertDisconnection] = useState(settings.alertDisconnection);
+
+  // Risk Management Limits
+  const [maxRisk, setMaxRisk] = useState(settings.maxRiskPercent.toString());
+  const [maxOpenPos, setMaxOpenPos] = useState(settings.maxOpenPositions.toString());
 
   // Sync inputs with settings once they are asynchronously loaded
   useEffect(() => {
@@ -29,11 +42,22 @@ export default function SettingsPanel() {
     setStatusPath(settings.webhookStatusPath);
     setWebhookSecret(settings.webhookSecret || '');
     setTelegramToken(settings.telegramToken || '');
+    setTelegramChatId(settings.telegramChatId || '');
     setUseManualRate(settings.useManualExchangeRate);
     setManualRate(settings.manualExchangeRate.toString());
     setIsSimulated(settings.isSimulatedMode);
+
+    setAlertTradeOpened(settings.alertTradeOpened);
+    setAlertStopLossHit(settings.alertStopLossHit);
+    setAlertTp1Hit(settings.alertTp1Hit);
+    setAlertTp2Hit(settings.alertTp2Hit);
+    setAlertDailySummary(settings.alertDailySummary);
+    setAlertDisconnection(settings.alertDisconnection);
+
+    setMaxRisk(settings.maxRiskPercent.toString());
+    setMaxOpenPos(settings.maxOpenPositions.toString());
   }, [settings]);
-  
+
   // API credentials configuration state checked from server
   const [binanceStatus, setBinanceStatus] = useState<{ configured: boolean; keyPresent: boolean; secretPresent: boolean }>({
     configured: false,
@@ -44,6 +68,7 @@ export default function SettingsPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleTestConnection = async () => {
@@ -59,7 +84,7 @@ export default function SettingsPanel() {
       const res = await fetch(`/api/trade/health?${queryParams.toString()}`);
       if (!res.ok) throw new Error('Health check request failed');
       const data = await res.json();
-      
+
       if (data.success) {
         setTestResult({ success: true, message: data.message || 'Connection successful ✓' });
       } else {
@@ -72,12 +97,44 @@ export default function SettingsPanel() {
     }
   };
 
-  // Load API credentials configuration status from server API on mount
+  const handleTestTelegram = async () => {
+    if (!telegramToken || !telegramChatId) {
+      setSaveStatus({ type: 'error', message: 'Telegram Token and Chat ID are required to send a test message.' });
+      return;
+    }
+    setIsTestingTelegram(true);
+    setTestResult(null);
+    setSaveStatus(null);
+    try {
+      const url = `https://api.telegram.org/bot${telegramToken.trim()}/sendMessage`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: telegramChatId.trim(),
+          text: '🔔 Gold AutoTrader Dashboard: Test Notification Succeeded ✓',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTestResult({ success: true, message: 'Test message sent successfully to Telegram!' });
+      } else {
+        throw new Error(data.description || 'Failed to send message');
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: `Telegram error: ${err.message}` });
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
+
+  // Load API credentials status from server on mount
   useEffect(() => {
     const checkCredentials = async () => {
       try {
         const res = await fetch('/api/trade/status');
-        // If the API status endpoint returns a schema, we check credentials
         if (res.ok) {
           const data = await res.json();
           setBinanceStatus({
@@ -104,8 +161,17 @@ export default function SettingsPanel() {
         throw new Error('Please enter a valid positive exchange rate.');
       }
 
+      const parsedRisk = parseFloat(maxRisk);
+      const parsedOpenPos = parseInt(maxOpenPos);
+      if (isNaN(parsedRisk) || parsedRisk < 0.1 || parsedRisk > 10) {
+        throw new Error('Max Risk must be between 0.1% and 10%.');
+      }
+      if (isNaN(parsedOpenPos) || parsedOpenPos < 1 || parsedOpenPos > 5) {
+        throw new Error('Max Open Positions must be between 1 and 5.');
+      }
+
       await updateSettings({
-        n8nBaseUrl: n8nUrl.trim().replace(/\/$/, ''), // remove trailing slash
+        n8nBaseUrl: n8nUrl.trim().replace(/\/$/, ''),
         webhookExecutePath: execPath.trim(),
         webhookClosePath: closePath.trim(),
         webhookStatusPath: statusPath.trim(),
@@ -114,11 +180,18 @@ export default function SettingsPanel() {
         isSimulatedMode: isSimulated,
         webhookSecret: webhookSecret.trim(),
         telegramToken: telegramToken.trim(),
+        telegramChatId: telegramChatId.trim(),
+        alertTradeOpened,
+        alertStopLossHit,
+        alertTp1Hit,
+        alertTp2Hit,
+        alertDailySummary,
+        alertDisconnection,
+        maxRiskPercent: parsedRisk,
+        maxOpenPositions: parsedOpenPos,
       });
 
       setSaveStatus({ type: 'success', message: 'Settings saved successfully!' });
-      
-      // Auto-clear success message after 3 seconds
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err: any) {
       setSaveStatus({ type: 'error', message: err.message || 'Failed to save settings.' });
@@ -193,7 +266,7 @@ export default function SettingsPanel() {
               <label className="text-xs text-slate-400 font-semibold block mb-1">Close Trade Webhook Path</label>
               <input
                 type="text"
-                value={execPath ? closePath : ''}
+                value={closePath}
                 onChange={(e) => setClosePath(e.target.value)}
                 disabled={isSimulated}
                 placeholder="/webhook/gold-trade-close"
@@ -240,6 +313,106 @@ export default function SettingsPanel() {
           </div>
         </div>
 
+        {/* Telegram alert toggles section */}
+        <div className="space-y-4 pt-4 border-t border-slate-900">
+          <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
+            <Bell className="h-4 w-4 text-slate-400" />
+            Notification Preferences
+          </h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-3 bg-slate-950/20 border border-slate-800 p-4 rounded-xl">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider mb-2">Telegram Alert Types</span>
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertTradeOpened}
+                  onChange={(e) => setAlertTradeOpened(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>🟢 Trade Opened</span>
+              </label>
+
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertStopLossHit}
+                  onChange={(e) => setAlertStopLossHit(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>🔴 Stop Loss Hit</span>
+              </label>
+
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertTp1Hit}
+                  onChange={(e) => setAlertTp1Hit(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>🟡 TP1 Hit</span>
+              </label>
+
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertTp2Hit}
+                  onChange={(e) => setAlertTp2Hit(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>🟢 TP2 Hit</span>
+              </label>
+
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertDailySummary}
+                  onChange={(e) => setAlertDailySummary(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>🔵 Daily Summary (23:00 Bangkok)</span>
+              </label>
+
+              <label className="flex items-center gap-3 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alertDisconnection}
+                  onChange={(e) => setAlertDisconnection(e.target.checked)}
+                  className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                />
+                <span>⚠️ Disconnection Alert (&gt;2 mins)</span>
+              </label>
+            </div>
+
+            <div className="flex flex-col justify-between bg-slate-950/20 border border-slate-800 p-4 rounded-xl">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider mb-2">Telegram Target Receiver</span>
+                
+                <label className="text-xs text-slate-400 font-semibold block mb-1">Telegram Chat ID</label>
+                <input
+                  type="text"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  placeholder="e.g. -100123456789"
+                  className="h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 placeholder-slate-700 focus:border-cyan-500 focus:outline-none"
+                />
+                <span className="text-[9px] text-slate-500 block mt-1">Chat ID or Group ID. Obfuscated in storage.</span>
+              </div>
+
+              <div className="pt-4 border-t border-slate-900 mt-4">
+                <button
+                  type="button"
+                  onClick={handleTestTelegram}
+                  disabled={isTestingTelegram || !telegramToken || !telegramChatId}
+                  className="flex h-9 w-full items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 font-bold text-slate-200 border border-slate-800 transition-colors disabled:opacity-40 text-xs cursor-pointer"
+                >
+                  {isTestingTelegram ? 'Sending Test...' : 'Test Notification'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Currency Override */}
         <div className="space-y-4 pt-2 border-t border-slate-900">
           <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
@@ -276,9 +449,46 @@ export default function SettingsPanel() {
               />
             </div>
           </div>
-          
+
           <div className="text-xs text-slate-500">
             Current dynamic USD/THB exchange rate: <span className="font-semibold text-slate-300">{exchangeRate.toFixed(2)} THB</span>.
+          </div>
+        </div>
+
+        {/* Risk limits settings */}
+        <div className="space-y-4 pt-4 border-t border-slate-900">
+          <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
+            <Sliders className="h-4 w-4 text-slate-400" />
+            Risk Management Limits
+          </h4>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">Max Risk Per Trade (%)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="10"
+                value={maxRisk}
+                onChange={(e) => setMaxRisk(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+              />
+              <span className="text-[10px] text-slate-500 block mt-1">Limit trade entry if loss risk exceeds this % (range 0.1% - 10%).</span>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 font-semibold block mb-1">Max Open Positions</label>
+              <input
+                type="number"
+                min="1"
+                max="5"
+                value={maxOpenPos}
+                onChange={(e) => setMaxOpenPos(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+              />
+              <span className="text-[10px] text-slate-500 block mt-1">Disable trade execution if current position count reaches this value (range 1 - 5).</span>
+            </div>
           </div>
         </div>
 
@@ -315,7 +525,7 @@ export default function SettingsPanel() {
                 </span>
               )}
             </div>
-            
+
             <div className="flex gap-2 text-[11px] text-slate-500 items-start border-t border-slate-900 pt-2.5 mt-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-cyan-500" />
               <span>
@@ -351,7 +561,7 @@ export default function SettingsPanel() {
               type="button"
               onClick={handleTestConnection}
               disabled={isTesting || isSimulated}
-              className="flex h-10 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 px-5 font-bold text-slate-200 border border-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-10 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 px-5 font-bold text-slate-200 border border-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
             >
               {isTesting ? 'Testing...' : 'Test Connection'}
             </button>
@@ -359,7 +569,7 @@ export default function SettingsPanel() {
             <button
               type="submit"
               disabled={isSaving}
-              className="flex h-10 items-center justify-center rounded-xl bg-cyan-500 hover:bg-cyan-400 px-6 font-bold text-slate-950 transition-colors cursor-pointer"
+              className="flex h-10 items-center justify-center rounded-xl bg-cyan-500 hover:bg-cyan-400 px-6 font-bold text-slate-950 transition-colors cursor-pointer text-xs"
             >
               {isSaving ? 'Saving...' : 'Save Configuration'}
             </button>

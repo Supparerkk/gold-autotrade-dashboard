@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTrade } from '@/context/TradeContext';
-import { Play, Percent, DollarSign, Calculator, AlertCircle } from 'lucide-react';
+import { Play, Calculator, AlertCircle } from 'lucide-react';
 
 export default function TradingControlPanel() {
-  const { goldPrice, exchangeRate, executeTrade, activePosition } = useTrade();
-  
+  const { goldPrice, exchangeRate, executeTrade, activePosition, settings } = useTrade();
+
   const CAPITAL_THB = 10000;
-  
+
   // Form state
   const [direction, setDirection] = useState<'LONG' | 'SHORT'>('LONG');
   const [entryPrice, setEntryPrice] = useState<string>('');
@@ -17,12 +17,13 @@ export default function TradingControlPanel() {
   const [slValue, setSlValue] = useState<string>('2'); // default 2%
   const [tp1Pct, setTp1Pct] = useState<string>('4'); // default 4% (2:1 R:R from 2% SL)
   const [tp2Pct, setTp2Pct] = useState<string>('8'); // default 8% (4:1 R:R)
-  
+
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const [showConfirm, setShowConfirm] = useState<boolean>(false);
   const [cooldown, setCooldown] = useState<boolean>(false);
+  const [riskOverride, setRiskOverride] = useState<boolean>(false);
 
   // Sync entry price to live price if not touched
   useEffect(() => {
@@ -53,11 +54,16 @@ export default function TradingControlPanel() {
   const numericTp1 = parseFloat(tp1Pct) || 0;
   const numericTp2 = parseFloat(tp2Pct) || 0;
 
+  // Reset override if parameters change
+  useEffect(() => {
+    setRiskOverride(false);
+  }, [direction, entryPrice, slValue, slType, positionSizePct]);
+
   // Calculate SL/TP target prices
   const slPrice = useMemo(() => {
     if (numericEntry <= 0 || numericSlVal <= 0) return 0;
     if (slType === 'price') return numericSlVal;
-    
+
     // Percentage basis
     const multiplier = numericSlVal / 100;
     if (direction === 'LONG') {
@@ -87,6 +93,14 @@ export default function TradingControlPanel() {
     }
   }, [direction, numericEntry, numericTp2]);
 
+  // Calculate risk percent
+  const riskPercent = useMemo(() => {
+    if (numericEntry <= 0 || slPrice <= 0) return 0;
+    return (Math.abs(numericEntry - slPrice) / numericEntry) * 100;
+  }, [numericEntry, slPrice]);
+
+  const isRiskExceeded = riskPercent > settings.maxRiskPercent;
+
   // Visual Calculator Metrics (Projections)
   const calculations = useMemo(() => {
     if (numericEntry <= 0 || slPrice <= 0 || tp1Price <= 0 || tp2Price <= 0) {
@@ -94,7 +108,7 @@ export default function TradingControlPanel() {
     }
 
     const isLong = direction === 'LONG';
-    
+
     // Stop Loss calculation (full position exit)
     const slDiff = Math.abs(slPrice - numericEntry) / numericEntry;
     const slLossUsdt = positionSizeUsdt * slDiff;
@@ -128,13 +142,11 @@ export default function TradingControlPanel() {
   // Risk to reward ratios
   const riskRewardTp1 = useMemo(() => {
     if (calculations.slLossUsdt === 0) return 0;
-    // For TP1, we exit 50% of size, so reward is based on that
     return calculations.tp1ProfitUsdt / calculations.slLossUsdt;
   }, [calculations]);
 
   const riskRewardTp2 = useMemo(() => {
     if (calculations.slLossUsdt === 0) return 0;
-    // Total trade R/R assuming both targets hit
     return calculations.totalProfitUsdt / calculations.slLossUsdt;
   }, [calculations]);
 
@@ -154,7 +166,7 @@ export default function TradingControlPanel() {
     });
 
     setIsExecuting(false);
-    
+
     // 3-second button cooldown guard
     setCooldown(true);
     setTimeout(() => setCooldown(false), 3000);
@@ -199,8 +211,30 @@ export default function TradingControlPanel() {
       }
     }
 
-    // Validation checks passed, display confirm overlay modal
+    // Risk override validation
+    if (isRiskExceeded && !riskOverride) {
+      setFeedback({ type: 'error', message: 'Risk exceeds settings limits. Please adjust parameters or override.' });
+      return;
+    }
+
     setShowConfirm(true);
+  };
+
+  const isExecuteDisabled = isExecuting || cooldown || !!activePosition || (isRiskExceeded && !riskOverride);
+
+  const getButtonText = () => {
+    if (isExecuting) return 'Executing trade...';
+    if (cooldown) return 'Cooldown Active (3s)...';
+    if (activePosition) return 'Max positions reached (1/1)';
+    if (isRiskExceeded && !riskOverride) return 'Execute Blocked (Risk High)';
+    if (isRiskExceeded && riskOverride) return 'Execute (Override) ⚡';
+    return 'Execute Trade Signal';
+  };
+
+  const getButtonColorClass = () => {
+    if (isExecuteDisabled) return 'bg-slate-800 text-slate-500 cursor-not-allowed';
+    if (isRiskExceeded && riskOverride) return 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 font-bold text-white shadow-lg shadow-orange-950/20';
+    return 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 font-bold text-white shadow-lg shadow-cyan-950/20';
   };
 
   return (
@@ -261,7 +295,7 @@ export default function TradingControlPanel() {
                 value={entryPrice}
                 onChange={(e) => setEntryPrice(e.target.value)}
                 placeholder="Entry Price"
-                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:outline-none"
+                className="h-10 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:outline-none animate-in fade-in"
               />
               <button
                 type="button"
@@ -320,7 +354,7 @@ export default function TradingControlPanel() {
                 </span>
               </div>
             </div>
-            
+
             {/* SL type selection */}
             <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-slate-900 border border-slate-800 h-9">
               <button
@@ -421,7 +455,7 @@ export default function TradingControlPanel() {
                 +{calculations.totalProfitUsdt.toFixed(2)} USDT (+{calculations.totalProfitThb.toFixed(0)} THB)
               </span>
             </div>
-            
+
             {/* Risk reward display */}
             <div className="flex justify-between items-center text-[10px] text-slate-500">
               <span>Risk/Reward Ratios:</span>
@@ -430,11 +464,30 @@ export default function TradingControlPanel() {
           </div>
         </div>
 
+        {/* FEATURE 8 - Risk Warning Banner */}
+        {isRiskExceeded && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3.5 text-rose-400 text-xs flex flex-col gap-2">
+            <div className="flex gap-2 items-start">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>⚠️ Risk {riskPercent.toFixed(1)}% exceeds your limit of {settings.maxRiskPercent}%. Adjust position size or increase SL.</span>
+            </div>
+            <label className="flex items-center gap-2.5 mt-1 cursor-pointer font-bold select-none text-slate-300 hover:text-white">
+              <input
+                type="checkbox"
+                checked={riskOverride}
+                onChange={(e) => setRiskOverride(e.target.checked)}
+                className="rounded border-slate-800 bg-slate-950 text-orange-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+              />
+              <span>I understand the risk — allow this trade</span>
+            </label>
+          </div>
+        )}
+
         {/* Execute Button */}
         <button
           type="submit"
-          disabled={isExecuting || cooldown || !!activePosition}
-          className="flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 font-bold text-white shadow-lg shadow-cyan-950/20 transition-all duration-300 hover:from-cyan-400 hover:to-blue-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
+          disabled={isExecuteDisabled}
+          className={`flex w-full h-11 items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer text-xs ${getButtonColorClass()}`}
         >
           {isExecuting ? (
             <span className="flex items-center gap-2">
@@ -447,11 +500,11 @@ export default function TradingControlPanel() {
           ) : cooldown ? (
             'Cooldown Active (3s)...'
           ) : activePosition ? (
-            'Position Already Open'
+            'Max positions reached (1/1)'
           ) : (
             <>
               <Play className="h-4 w-4 fill-current" />
-              Execute Trade Signal
+              <span>{getButtonText()}</span>
             </>
           )}
         </button>
@@ -474,7 +527,7 @@ export default function TradingControlPanel() {
               <AlertCircle className="h-5 w-5" />
               Confirm Trade Execution
             </h4>
-            
+
             <div className="space-y-3.5 text-xs text-slate-300 my-4">
               <div className="flex justify-between border-b border-slate-900 pb-1.5">
                 <span className="text-slate-500 font-semibold">Direction</span>
@@ -498,24 +551,30 @@ export default function TradingControlPanel() {
                 <span className="text-slate-500 font-semibold">Take Profit 2 (100%)</span>
                 <span className="font-bold text-emerald-400">${tp2Price.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between border-b border-slate-900 pb-1.5">
                 <span className="text-slate-500 font-semibold">Position Size</span>
                 <span className="font-bold text-cyan-400">${positionSizeUsdt.toFixed(2)} USDT</span>
               </div>
+              {isRiskExceeded && (
+                <div className="flex justify-between border-b border-slate-900 pb-1.5 text-orange-400">
+                  <span className="font-semibold">Risk Level (Override)</span>
+                  <span className="font-bold">{riskPercent.toFixed(1)}% (ALLOWED)</span>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={() => setShowConfirm(false)}
-                className="flex-1 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 font-semibold text-slate-300 border border-slate-800 transition-colors cursor-pointer"
+                className="flex-1 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 font-semibold text-slate-300 border border-slate-800 transition-colors cursor-pointer text-xs"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmTrade}
-                className="flex-1 h-10 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 transition-colors cursor-pointer"
+                className="flex-1 h-10 rounded-xl bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 transition-colors cursor-pointer text-xs"
               >
                 Confirm Trade
               </button>

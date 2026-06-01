@@ -39,6 +39,15 @@ export interface Settings {
   isSimulatedMode: boolean;
   webhookSecret?: string;
   telegramToken?: string;
+  telegramChatId?: string;
+  alertTradeOpened: boolean;
+  alertStopLossHit: boolean;
+  alertTp1Hit: boolean;
+  alertTp2Hit: boolean;
+  alertDailySummary: boolean;
+  alertDisconnection: boolean;
+  maxRiskPercent: number;
+  maxOpenPositions: number;
 }
 
 export interface KLine {
@@ -58,6 +67,10 @@ interface TradeContextType {
   tradeLogs: Trade[];
   activePosition: Trade | null;
   isLoading: boolean;
+  connectionStatus: 'CONNECTED' | 'DELAYED' | 'DISCONNECTED';
+  lastPingTime: Date | null;
+  latency: number | null;
+  lastUpdatedTime: Date | null;
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
   executeTrade: (tradeParams: {
     direction: 'LONG' | 'SHORT';
@@ -68,10 +81,12 @@ interface TradeContextType {
     position_size_usdt: number;
     capital_thb: number;
   }) => Promise<{ success: boolean; message: string }>;
-  closeActivePosition: () => Promise<{ success: boolean; message: string }>;
+  closeActivePosition: (reason?: string) => Promise<{ success: boolean; message: string }>;
   refreshTradeLogs: () => Promise<void>;
   triggerNotification: (title: string, body: string) => void;
   resetAllLogs: () => Promise<void>;
+  pingStatus: () => Promise<void>;
+  updateTradeNotes: (id: string, notes: string) => Promise<void>;
 }
 
 const defaultSettings: Settings = {
@@ -85,6 +100,15 @@ const defaultSettings: Settings = {
   isSimulatedMode: false, // Default to false to connect to your live Hostinger n8n instance
   webhookSecret: '',
   telegramToken: '',
+  telegramChatId: '',
+  alertTradeOpened: true,
+  alertStopLossHit: true,
+  alertTp1Hit: true,
+  alertTp2Hit: true,
+  alertDailySummary: true,
+  alertDisconnection: true,
+  maxRiskPercent: 2,
+  maxOpenPositions: 1,
 };
 
 /**
@@ -162,6 +186,11 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   const [tradeLogs, setTradeLogs] = useState<Trade[]>([]);
   const [activePosition, setActivePosition] = useState<Trade | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  
+  const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DELAYED' | 'DISCONNECTED'>('DISCONNECTED');
+  const [lastPingTime, setLastPingTime] = useState<Date | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
+  const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
 
   // Ask for notification permission on mount
   useEffect(() => {
@@ -247,6 +276,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       // Load sensitive configurations obfuscated
       merged.webhookSecret = secureGet('webhookSecret');
       merged.telegramToken = secureGet('telegramToken');
+      merged.telegramChatId = secureGet('telegramChatId');
 
       setSettings(merged);
     } catch (err) {
@@ -261,7 +291,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       // ⚠️ SECURITY: Exclude sensitive credentials from plain-text gold_trade_settings storage
-      const { webhookSecret, telegramToken, ...plainSettings } = updated;
+      const { webhookSecret, telegramToken, telegramChatId, ...plainSettings } = updated;
       localStorage.setItem('gold_trade_settings', JSON.stringify(plainSettings));
 
       if (webhookSecret !== undefined) {
@@ -269,6 +299,9 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       }
       if (telegramToken !== undefined) {
         secureSet('telegramToken', telegramToken);
+      }
+      if (telegramChatId !== undefined) {
+        secureSet('telegramChatId', telegramChatId);
       }
 
       if (isSupabaseConfigured && supabase) {
@@ -365,14 +398,21 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
 
   // Fetch Binance PAXG/USDT price and stats
   const fetchBinanceTicker = useCallback(async () => {
+    const startTime = Date.now();
     try {
       const res = await secureFetch('/api/market/ticker');
+      const endTime = Date.now();
       if (!res) throw new Error('Binance API response error');
       const data = await res.json();
       setGoldPrice(parseFloat(data.lastPrice));
       setPriceChange24h(parseFloat(data.priceChangePercent));
+      setLastUpdatedTime(new Date());
+      setConnectionStatus('CONNECTED');
+      setLastPingTime(new Date());
+      setLatency(endTime - startTime);
     } catch (err) {
       console.error('Failed to fetch Binance ticker:', err);
+      setConnectionStatus('DISCONNECTED');
     }
   }, []);
 
@@ -394,10 +434,51 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         };
       });
       setKlinesData(formatted);
+      setLastUpdatedTime(new Date());
     } catch (err) {
       console.error('Failed to fetch Binance klines:', err);
     }
   }, []);
+
+  // Heartbeat ping status check
+  const pingStatus = useCallback(async () => {
+    if (settings.isSimulatedMode) {
+      setConnectionStatus('CONNECTED');
+      setLastPingTime(new Date());
+      setLatency(15);
+      return;
+    }
+    const startTime = Date.now();
+    try {
+      const queryParams = new URLSearchParams({
+        n8nBaseUrl: settings.n8nBaseUrl,
+        webhookStatusPath: settings.webhookStatusPath,
+      });
+      const res = await secureFetch(`/api/trade/status?${queryParams.toString()}`);
+      const endTime = Date.now();
+      if (res) {
+        setConnectionStatus('CONNECTED');
+        setLastPingTime(new Date());
+        setLatency(endTime - startTime);
+      } else {
+        setConnectionStatus('DISCONNECTED');
+        setLatency(null);
+      }
+    } catch (e) {
+      setConnectionStatus('DISCONNECTED');
+      setLatency(null);
+    }
+  }, [settings.isSimulatedMode, settings.n8nBaseUrl, settings.webhookStatusPath]);
+
+  // Update notes of a specific trade log
+  const updateTradeNotes = async (id: string, notes: string) => {
+    const updated = tradeLogs.map((log) => (log.id === id ? { ...log, notes } : log));
+    await saveTradeLogs(updated);
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('trades').update({ notes }).eq('id', id);
+    }
+  };
 
   // Set up Polling Intervals
   useEffect(() => {
@@ -406,6 +487,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       await fetchExchangeRate();
       await fetchBinanceTicker();
       await fetchBinanceKlines();
+      await pingStatus();
       setIsLoading(false);
     };
     init();
@@ -416,13 +498,16 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     const klinesInterval = setInterval(fetchBinanceKlines, 60000);
     // Refresh exchange rate every 10 minutes
     const rateInterval = setInterval(fetchExchangeRate, 600000);
+    // Heartbeat status check every 30 seconds
+    const heartbeatInterval = setInterval(pingStatus, 30000);
 
     return () => {
       clearInterval(tickerInterval);
       clearInterval(klinesInterval);
       clearInterval(rateInterval);
+      clearInterval(heartbeatInterval);
     };
-  }, [loadSettings, fetchExchangeRate, fetchBinanceTicker, fetchBinanceKlines]);
+  }, [loadSettings, fetchExchangeRate, fetchBinanceTicker, fetchBinanceKlines, pingStatus]);
 
   // Load trade logs once settings are loaded
   useEffect(() => {
@@ -668,8 +753,10 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+
+
   // Close Active Position
-  const closeActivePosition = async () => {
+  const closeActivePosition = async (reason: string = 'MANUAL_CLOSE') => {
     if (!activePosition) {
       return { success: false, message: 'No active position to close.' };
     }
@@ -692,6 +779,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       pnl_thb: pnlThb,
       timestamp: new Date().toISOString(),
       trade_id: activePosition.id,
+      reason,
     };
 
     if (settings.isSimulatedMode) {
@@ -841,12 +929,18 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         tradeLogs,
         activePosition,
         isLoading,
+        connectionStatus,
+        lastPingTime,
+        latency,
+        lastUpdatedTime,
         updateSettings,
         executeTrade,
         closeActivePosition,
         refreshTradeLogs,
         triggerNotification,
         resetAllLogs,
+        pingStatus,
+        updateTradeNotes,
       }}
     >
       {children}

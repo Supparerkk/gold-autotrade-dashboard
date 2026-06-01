@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TradeProvider, useTrade } from '@/context/TradeContext';
 import MarketOverview from '@/components/MarketOverview';
 import ActivePosition from '@/components/ActivePosition';
@@ -13,7 +13,26 @@ import { Bot, LineChart, History, Settings, Cpu, ShieldCheck } from 'lucide-reac
 
 function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
-  const { settings, exchangeRate } = useTrade();
+  const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus } = useTrade();
+  const [pingAge, setPingAge] = useState<string>('Never');
+
+  useEffect(() => {
+    const updatePingAge = () => {
+      if (!lastPingTime) {
+        setPingAge('Never');
+        return;
+      }
+      const secs = Math.round((Date.now() - new Date(lastPingTime).getTime()) / 1000);
+      if (secs < 60) {
+        setPingAge(`${secs}s ago`);
+      } else {
+        setPingAge(`${Math.floor(secs / 60)}m ago`);
+      }
+    };
+    updatePingAge();
+    const interval = setInterval(updatePingAge, 1000);
+    return () => clearInterval(interval);
+  }, [lastPingTime]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -72,27 +91,54 @@ function DashboardContent() {
           </nav>
 
           {/* Right Status Panel */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-4">
             <div className="text-right">
               <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">USD/THB RATE</span>
               <span className="text-xs font-bold text-slate-300">{exchangeRate.toFixed(2)} THB</span>
             </div>
-            <div className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold ${
-              settings.isSimulatedMode 
-                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' 
-                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-            }`}>
-              {settings.isSimulatedMode ? (
-                <>
-                  <Cpu className="h-3.5 w-3.5" />
-                  SANDBOX MOCK
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  LIVE CONNECTOR
-                </>
-              )}
+            
+            <div className="relative group cursor-pointer animate-in fade-in duration-300" onClick={() => pingStatus()}>
+              <div className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all duration-300 ${
+                connectionStatus === 'CONNECTED'
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                  : connectionStatus === 'DELAYED'
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+              }`}>
+                {/* Pulsing indicator dot */}
+                <span className="relative flex h-2 w-2">
+                  <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    connectionStatus === 'CONNECTED'
+                      ? 'animate-ping bg-emerald-400'
+                      : connectionStatus === 'DELAYED'
+                      ? 'animate-ping bg-amber-400'
+                      : 'bg-rose-400'
+                  }`}></span>
+                  <span className={`relative inline-flex h-2 w-2 rounded-full ${
+                    connectionStatus === 'CONNECTED'
+                      ? 'bg-emerald-500'
+                      : connectionStatus === 'DELAYED'
+                      ? 'bg-amber-500'
+                      : 'bg-rose-500'
+                  }`}></span>
+                </span>
+                
+                {settings.isSimulatedMode ? (
+                  <span>SANDBOX MOCK</span>
+                ) : (
+                  <span>{connectionStatus}</span>
+                )}
+              </div>
+
+              {/* Custom Tooltip */}
+              <div className="absolute top-full right-0 mt-2 hidden group-hover:block bg-slate-950 border border-slate-800 text-[10px] text-slate-400 p-2.5 rounded-lg shadow-xl z-50 whitespace-nowrap leading-relaxed pointer-events-none animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="space-y-1">
+                  <p className="flex justify-between gap-4">Last successful ping: <span className="text-slate-200 font-bold">{pingAge}</span></p>
+                  <p className="flex justify-between gap-4">Latency: <span className="text-slate-200 font-bold">{latency !== null ? `${latency}ms` : '—'}</span></p>
+                  <p className="flex justify-between gap-4">Endpoint: <span className="text-slate-200 font-bold">{settings.n8nBaseUrl ? (settings.n8nBaseUrl.length > 30 ? `${settings.n8nBaseUrl.slice(0, 27)}...` : settings.n8nBaseUrl) : '—'}</span></p>
+                  <p className="text-[8px] text-slate-500 italic mt-1 border-t border-slate-900 pt-1 text-center">Click badge to manual ping</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

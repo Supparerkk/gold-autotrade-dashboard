@@ -6,9 +6,45 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 
 export default function MarketOverview() {
-  const { goldPrice, priceChange24h, klinesData, isLoading } = useTrade();
+  const { goldPrice, priceChange24h, klinesData, isLoading, lastUpdatedTime } = useTrade();
   const [prevPrice, setPrevPrice] = useState<number>(0);
   const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'neutral'>('neutral');
+
+  const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
+
+  // Live timer update
+  useEffect(() => {
+    if (!lastUpdatedTime) return;
+
+    setSecondsElapsed(Math.round((Date.now() - new Date(lastUpdatedTime).getTime()) / 1000));
+
+    const interval = setInterval(() => {
+      setSecondsElapsed(Math.round((Date.now() - new Date(lastUpdatedTime).getTime()) / 1000));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [lastUpdatedTime]);
+
+  const getLastUpdatedText = () => {
+    if (!lastUpdatedTime) return 'Never updated';
+    if (secondsElapsed < 60) return `${secondsElapsed} seconds ago`;
+    const mins = Math.floor(secondsElapsed / 60);
+    if (mins < 60) return `${mins} minutes ago`;
+    const hours = Math.floor(mins / 60);
+    return `${hours} hours ago`;
+  };
+
+  const getTimerColorClass = () => {
+    if (!lastUpdatedTime) return 'text-slate-500';
+    if (secondsElapsed < 30) return 'text-emerald-400';
+    if (secondsElapsed < 60) return 'text-yellow-400';
+    return 'text-rose-400';
+  };
+
+  const formattedISOTime = useMemo(() => {
+    if (!lastUpdatedTime) return '';
+    return new Date(lastUpdatedTime).toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }) + ' (GMT+7)';
+  }, [lastUpdatedTime]);
 
   // Track price direction flash
   useEffect(() => {
@@ -172,6 +208,17 @@ export default function MarketOverview() {
             No chart data available
           </div>
         )}
+      </div>
+
+      {/* Last Updated Timestamp */}
+      <div className="mt-4 flex justify-between items-center text-[10px] text-slate-500">
+        <span>Data Feed: Binance Live</span>
+        <span 
+          className={`font-semibold cursor-help select-none transition-colors duration-300 ${getTimerColorClass()}`}
+          title={formattedISOTime}
+        >
+          Last updated: {getLastUpdatedText()}
+        </span>
       </div>
     </div>
   );
