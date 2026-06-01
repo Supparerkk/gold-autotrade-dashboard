@@ -1,17 +1,28 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  try {
-    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
-      next: { revalidate: 60 } // Cache for 60 seconds
-    });
-    if (!res.ok) {
-      throw new Error(`Exchange rate API responded with status ${res.status}`);
+  const apis = [
+    'https://open.er-api.com/v6/latest/USD',
+    'https://api.exchangerate-api.com/v4/latest/USD'
+  ];
+
+  let lastError = null;
+  for (const api of apis) {
+    try {
+      const res = await fetch(api, {
+        next: { revalidate: 60 }, // Cache for 60 seconds
+        signal: AbortSignal.timeout(4000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return NextResponse.json(data);
+      }
+      lastError = new Error(`Exchange rate API responded with status ${res.status} on ${api}`);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Failed fetching rate from ${api}:`, err.message || err);
     }
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (err: any) {
-    console.error('Error fetching exchange rate proxy:', err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
   }
+
+  return NextResponse.json({ error: lastError?.message || 'All exchange rate APIs failed' }, { status: 500 });
 }
