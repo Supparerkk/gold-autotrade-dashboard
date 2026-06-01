@@ -1156,7 +1156,7 @@ body {
 /* Performance metrics */
 .perf-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
 }
 
@@ -1902,5 +1902,106 @@ body {
   }
   .test-actions-group button, .settings-footer button[type="submit"] {
     width: 100%;
+  }
+}
+
+/* =====================================================
+   ===== NEW ANALYTICS FEATURES STYLING =====
+   ===================================================== */
+
+/* 1. Risk Metrics Panel Styles */
+.risk-metrics-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.risk-metric-panel-tile {
+  background-color: var(--bg-color);
+  border: 1px solid var(--card-border);
+  padding: 14px;
+  border-radius: 12px;
+  text-align: center;
+  transition: var(--transition-fast);
+}
+
+.risk-metric-panel-tile:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.panel-tile-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+}
+
+.panel-tile-value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 800;
+  display: block;
+  margin-top: 6px;
+}
+
+/* 2. Heatmap Table Styles */
+.heatmap-table th, .heatmap-table td {
+  padding: 8px;
+  border: 1px solid var(--card-border);
+}
+
+.heatmap-table td.text-center {
+  text-align: center;
+}
+
+/* 3. Timing Analysis Layout */
+.timing-analysis-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 24px;
+}
+
+.timing-subtitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-slate);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hourly-heatmap-table th, .hourly-heatmap-table td {
+  border: 1px solid var(--card-border);
+}
+
+/* 4. Orange / Red Warning Banner Styles */
+.warning-banner-orange {
+  background-color: rgba(249, 115, 22, 0.08) !important;
+  border: 1px solid rgba(249, 115, 22, 0.2) !important;
+  color: var(--orange) !important;
+}
+
+.warning-banner-red {
+  background-color: rgba(255, 68, 68, 0.08) !important;
+  border: 1px solid rgba(255, 68, 68, 0.2) !important;
+  color: var(--red) !important;
+}
+
+/* 5. Timing grid responsive adjustments */
+@media (max-width: 900px) {
+  .timing-analysis-grid {
+    grid-template-columns: 1fr;
+  }
+  .risk-metrics-panel-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .risk-metrics-panel-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

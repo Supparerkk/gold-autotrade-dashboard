@@ -104,6 +104,9 @@
       
       <!-- ==================== MONITOR TAB ==================== -->
       <section id="viewMonitor" class="tab-view active">
+        <!-- Status & Warning Banners -->
+        <div id="monitorBanners" class="monitor-banners" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;"></div>
+        
         <div class="monitor-grid">
           
           <!-- Left Main Area (Chart & Details) -->
@@ -307,6 +310,44 @@
                 <span id="perfLosses" class="perf-value text-red">0</span>
                 <span id="perfLossesSub" class="perf-subtext">Max consecutive: 0</span>
               </div>
+              <div class="perf-tile">
+                <span class="perf-label">Current Streak</span>
+                <span id="perfCurrentStreak" class="perf-value text-slate">0</span>
+                <span id="perfCurrentStreakSub" class="perf-subtext">Active streak</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Key Risk Metrics Panel Card -->
+          <div class="card risk-metrics-panel-card">
+            <div class="card-header">
+              <h2 class="card-title"><i class="fa-solid fa-gauge-high text-blue animate-pulse"></i> Key Risk Metrics</h2>
+            </div>
+            <div class="risk-metrics-panel-grid">
+              <div class="risk-metric-panel-tile" title="Gross Profit / Gross Loss. Indicates how much profit is generated per unit of loss. Values > 1.5 are considered healthy, < 1.0 is unprofitable.">
+                <span class="panel-tile-label">Profit Factor</span>
+                <span id="metricPanelProfitFactor" class="panel-tile-value">—</span>
+              </div>
+              <div class="risk-metric-panel-tile" title="Risk-adjusted return measure. Higher Sharpe ratio indicates better returns relative to risk taken.">
+                <span class="panel-tile-label">Sharpe Ratio</span>
+                <span id="metricPanelSharpe" class="panel-tile-value">—</span>
+              </div>
+              <div class="risk-metric-panel-tile" title="Largest peak-to-trough decline in account equity. Represents peak risk exposure.">
+                <span class="panel-tile-label">Max Drawdown %</span>
+                <span id="metricPanelMaxDrawdown" class="panel-tile-value">—</span>
+              </div>
+              <div class="risk-metric-panel-tile" title="Longest consecutive run of winning trades.">
+                <span class="panel-tile-label">Win Streak</span>
+                <span id="metricPanelWinStreak" class="panel-tile-value">—</span>
+              </div>
+              <div class="risk-metric-panel-tile" title="Longest consecutive run of losing trades.">
+                <span class="panel-tile-label">Loss Streak</span>
+                <span id="metricPanelLossStreak" class="panel-tile-value">—</span>
+              </div>
+              <div class="risk-metric-panel-tile" title="Average duration of trades from open to close.">
+                <span class="panel-tile-label">Avg Trade Duration</span>
+                <span id="metricPanelAvgDuration" class="panel-tile-value">—</span>
+              </div>
             </div>
           </div>
 
@@ -330,6 +371,39 @@
               <div class="chart-container-small">
                 <canvas id="winLossChart"></canvas>
               </div>
+            </div>
+          </div>
+
+          <!-- Monthly Performance Heatmap Card -->
+          <div class="card monthly-perf-card">
+            <div class="card-header">
+              <h2 class="card-title"><i class="fa-solid fa-calendar-days text-blue"></i> Monthly Performance Heatmap</h2>
+            </div>
+            <div class="table-scroll-container">
+              <table class="heatmap-table" id="monthlyPerformanceTable" style="width: 100%; border-collapse: collapse; font-size: 0.75rem;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--card-border);">
+                    <th style="padding: 10px; text-align: left;">Year</th>
+                    <th style="padding: 10px; text-align: center;">Jan</th>
+                    <th style="padding: 10px; text-align: center;">Feb</th>
+                    <th style="padding: 10px; text-align: center;">Mar</th>
+                    <th style="padding: 10px; text-align: center;">Apr</th>
+                    <th style="padding: 10px; text-align: center;">May</th>
+                    <th style="padding: 10px; text-align: center;">Jun</th>
+                    <th style="padding: 10px; text-align: center;">Jul</th>
+                    <th style="padding: 10px; text-align: center;">Aug</th>
+                    <th style="padding: 10px; text-align: center;">Sep</th>
+                    <th style="padding: 10px; text-align: center;">Oct</th>
+                    <th style="padding: 10px; text-align: center;">Nov</th>
+                    <th style="padding: 10px; text-align: center;">Dec</th>
+                  </tr>
+                </thead>
+                <tbody id="monthlyPerformanceBody">
+                  <tr>
+                    <td colspan="13" class="table-empty">Loading performance heatmap...</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -413,6 +487,39 @@
               </table>
             </div>
 
+          </div>
+
+          <!-- Timing Analysis Row -->
+          <div class="card timing-analysis-card">
+            <div class="card-header">
+              <h2 class="card-title"><i class="fa-solid fa-clock text-blue"></i> Trade Timing Analysis (Bangkok Time GMT+7)</h2>
+            </div>
+            <div class="timing-analysis-grid">
+              <!-- Left Heatmap -->
+              <div class="timing-heatmap-wrapper">
+                <h3 class="timing-subtitle">Hourly Activity Heatmap (Avg THB PnL)</h3>
+                <div class="heatmap-scroll-container">
+                  <table class="hourly-heatmap-table" id="hourlyHeatmapTable" style="width: 100%; border-collapse: collapse; font-size: 0.7rem;">
+                    <thead>
+                      <tr id="hourlyHeatmapHeaders" style="border-bottom: 1px solid var(--card-border);">
+                        <!-- Filled by JS -->
+                      </tr>
+                    </thead>
+                    <tbody id="hourlyHeatmapBody">
+                      <!-- Filled by JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <!-- Right Bar Chart -->
+              <div class="timing-barchart-wrapper">
+                <h3 class="timing-subtitle">Average PnL by Day of Week</h3>
+                <div class="chart-container-small">
+                  <canvas id="timingBarChart"></canvas>
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -575,6 +682,12 @@
                     <label for="settingsMaxPositions">Max Open Positions</label>
                     <input type="number" id="settingsMaxPositions" min="1" max="5" placeholder="1">
                     <span class="input-helper">Disable execute button once position threshold is hit.</span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="settingsDailyLossLimit">Daily Loss Limit (THB)</label>
+                    <input type="number" id="settingsDailyLossLimit" min="1" placeholder="300">
+                    <span class="input-helper">Daily loss limit before auto-pausing bot (default: 300 THB).</span>
                   </div>
                 </div>
               </div>

@@ -96,7 +96,8 @@ const defaultSettings = {
   alertDailySummary: true,
   alertDisconnection: true,
   maxRiskPercent: 2.0,
-  maxOpenPositions: 1
+  maxOpenPositions: 1,
+  dailyLossLimit: 300
 };
 
 // Global App State
@@ -129,6 +130,8 @@ let STATE = {
 let priceChartInstance = null;
 let equityChartInstance = null;
 let winLossChartInstance = null;
+let timingBarChartInstance = null;
+
 
 // =====================================================
 // ===== INITIALIZATION & LOAD =====
@@ -159,6 +162,10 @@ window.addEventListener('DOMContentLoaded', () => {
   renderTradeLogsTable();
   updateRiskWarnings();
   renderPerformanceSummary();
+  renderMonthlyPerformanceHeatmap();
+  renderRiskMetricsPanel();
+  renderTimingAnalysis();
+  checkPauseConditions();
 });
 
 /**
@@ -199,6 +206,7 @@ function loadAllSettings() {
   
   document.getElementById('settingsMaxRisk').value = STATE.settings.maxRiskPercent;
   document.getElementById('settingsMaxPositions').value = STATE.settings.maxOpenPositions;
+  document.getElementById('settingsDailyLossLimit').value = STATE.settings.dailyLossLimit || 300;
   
   // Telegram Prefs
   document.getElementById('prefTradeOpened').checked = STATE.settings.alertTradeOpened;
@@ -244,6 +252,10 @@ function saveTradeLogs() {
   renderTradeLogsTable();
   renderPerformanceSummary();
   updateRiskWarnings();
+  renderMonthlyPerformanceHeatmap();
+  renderRiskMetricsPanel();
+  renderTimingAnalysis();
+  checkPauseConditions();
 }
 
 /**
@@ -278,7 +290,10 @@ function switchTab(tabName) {
   
   // Trigger chart draw adjustments
   if (tabName === 'logs') {
-    setTimeout(renderLedgerCharts, 100);
+    setTimeout(() => {
+      renderLedgerCharts();
+      renderTimingAnalysis();
+    }, 100);
   }
 }
 
@@ -1291,11 +1306,26 @@ function updateRiskWarnings() {
   }
   
   // 3. Configure button text & states
+  const now = new Date();
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const bangkokTime = new Date(utcMs + (3600000 * 7));
+  const bkkDateStr = bangkokTime.toISOString().split('T')[0];
+  const isDailyLossPaused = localStorage.getItem(`daily_loss_paused_${bkkDateStr}`) === 'true';
+  const isStreakPaused = localStorage.getItem('loss_streak_paused') === 'true';
+
   let isBtnDisabled = false;
   let btnText = 'Execute Trade Signal';
   let btnColorClass = 'btn-execute';
   
-  if (STATE.executeCooldown > 0) {
+  if (isDailyLossPaused) {
+    isBtnDisabled = true;
+    btnText = 'Auto-trade Paused (Daily Loss)';
+    btnColorClass = 'btn-disabled';
+  } else if (isStreakPaused) {
+    isBtnDisabled = true;
+    btnText = 'Auto-trade Paused (Streak Alert)';
+    btnColorClass = 'btn-disabled';
+  } else if (STATE.executeCooldown > 0) {
     isBtnDisabled = true;
     btnText = `Cooldown Active (${STATE.executeCooldown}s)`;
     btnColorClass = 'btn-disabled';
@@ -1483,6 +1513,7 @@ async function handleSettingsSave(e) {
     manualExchangeRate: parseFloat(document.getElementById('settingsManualRate').value) || 36.5,
     maxRiskPercent: parseFloat(document.getElementById('settingsMaxRisk').value) || 2.0,
     maxOpenPositions: parseInt(document.getElementById('settingsMaxPositions').value) || 1,
+    dailyLossLimit: parseFloat(document.getElementById('settingsDailyLossLimit').value) || 300,
     
     // Notification Preferences Toggles (Feature 4)
     alertTradeOpened: document.getElementById('prefTradeOpened').checked,
@@ -1643,6 +1674,22 @@ function renderPerformanceSummary() {
   
   document.getElementById('perfLosses').textContent = losses;
   document.getElementById('perfLossesSub').textContent = `Max consec loss: ${maxLossStreak}`;
+  
+  const streaks = calculateStreakMetrics();
+  const streakVal = streaks.currentStreak;
+  const streakEl = document.getElementById('perfCurrentStreak');
+  if (streakEl) {
+    if (streakVal > 0) {
+      streakEl.textContent = `🟢 +${streakVal}`;
+      streakEl.className = 'perf-value text-green';
+    } else if (streakVal < 0) {
+      streakEl.textContent = `🔴 ${streakVal}`;
+      streakEl.className = 'perf-value text-red';
+    } else {
+      streakEl.textContent = '0';
+      streakEl.className = 'perf-value text-slate';
+    }
+  }
   
   // Active/Disable Log actions
   document.getElementById('csvExportBtn').disabled = STATE.tradeLogs.length === 0;
@@ -2003,4 +2050,545 @@ function renderLedgerCharts() {
       cutout: '65%'
     }
   });
+}
+
+// =====================================================
+// ===== NEW ANALYTICS FEATURES HELPER FUNCTIONS =====
+// =====================================================
+
+function calculateStreakMetrics() {
+  const closedLogs = [...STATE.tradeLogs]
+    .filter(log => log.status === 'CLOSED' || log.status === 'SL_HIT' || log.status === 'TP2_HIT')
+    .reverse(); // oldest to newest
+    
+  let currentStreakVal = 0;
+  let currentLossStreak = 0;
+  let currentWinStreak = 0;
+  let maxLossStreak = 0;
+  let maxWinStreak = 0;
+  
+  closedLogs.forEach(log => {
+    const pnl = parseFloat(log.pnl_usdt) || 0;
+    if (pnl > 0) {
+      if (currentStreakVal > 0) {
+        currentStreakVal++;
+      } else {
+        currentStreakVal = 1;
+      }
+      currentWinStreak++;
+      currentLossStreak = 0;
+      maxWinStreak = Math.max(maxWinStreak, currentWinStreak);
+    } else {
+      if (currentStreakVal < 0) {
+        currentStreakVal--;
+      } else {
+        currentStreakVal = -1;
+      }
+      currentLossStreak++;
+      currentWinStreak = 0;
+      maxLossStreak = Math.max(maxLossStreak, currentLossStreak);
+    }
+  });
+  
+  return {
+    currentStreak: currentStreakVal,
+    currentLossStreak,
+    currentWinStreak,
+    maxLossStreak,
+    maxWinStreak
+  };
+}
+
+function getBangkokDayAndHour(dateStringOrTimestamp) {
+  const date = new Date(dateStringOrTimestamp);
+  const utcMs = date.getTime() + (date.getTimezoneOffset() * 60000);
+  const bangkokDate = new Date(utcMs + (3600000 * 7));
+  
+  let day = bangkokDate.getDay();
+  day = day === 0 ? 6 : day - 1; // Mon = 0, Sun = 6
+  
+  const hour = bangkokDate.getHours();
+  const month = bangkokDate.getMonth();
+  const year = bangkokDate.getFullYear();
+  
+  return { day, hour, month, year, dateObj: bangkokDate };
+}
+
+function renderMonthlyPerformanceHeatmap() {
+  const body = document.getElementById('monthlyPerformanceBody');
+  if (!body) return;
+  body.innerHTML = '';
+  
+  const closedLogs = STATE.tradeLogs.filter(log => 
+    (log.status === 'CLOSED' || log.status === 'SL_HIT' || log.status === 'TP2_HIT') && log.closed_at
+  );
+  
+  const currentYear = new Date().getFullYear();
+  let minYear = currentYear;
+  let maxYear = currentYear;
+  
+  const data = {};
+  
+  closedLogs.forEach(log => {
+    const { month, year } = getBangkokDayAndHour(log.closed_at);
+    if (year < minYear) minYear = year;
+    if (year > maxYear) maxYear = year;
+    
+    if (!data[year]) {
+      data[year] = Array.from({ length: 12 }, () => ({ pnl: 0, trades: 0, wins: 0 }));
+    }
+    
+    const pnlUsdt = parseFloat(log.pnl_usdt) || 0;
+    const pnlThb = parseFloat(log.pnl_thb) || (pnlUsdt * STATE.exchangeRate);
+    const isWin = pnlUsdt > 0;
+    
+    data[year][month].pnl += pnlThb;
+    data[year][month].trades += 1;
+    if (isWin) data[year][month].wins += 1;
+  });
+  
+  for (let year = maxYear; year >= minYear; year--) {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--card-border)';
+    
+    const tdYear = document.createElement('td');
+    tdYear.className = 'font-bold text-white';
+    tdYear.style.padding = '10px';
+    tdYear.textContent = year;
+    tr.appendChild(tdYear);
+    
+    const yearData = data[year] || Array.from({ length: 12 }, () => ({ pnl: 0, trades: 0, wins: 0 }));
+    
+    for (let month = 0; month < 12; month++) {
+      const td = document.createElement('td');
+      td.style.padding = '10px';
+      const monthData = yearData[month];
+      
+      if (monthData.trades === 0) {
+        td.textContent = '—';
+        td.className = 'text-center text-muted';
+        td.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+      } else {
+        const pnl = monthData.pnl;
+        const count = monthData.trades;
+        const winRate = Math.round((monthData.wins / count) * 100);
+        
+        td.textContent = `${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()} THB`;
+        td.className = 'text-center font-bold text-xs';
+        td.setAttribute('title', `${count} trades, ${winRate}% win rate`);
+        td.style.cursor = 'pointer';
+        
+        if (pnl > 0) {
+          const intensity = Math.min(0.8, 0.15 + pnl / 5000);
+          td.style.backgroundColor = `rgba(0, 255, 136, ${intensity})`;
+          td.style.color = '#0c0c0e';
+        } else {
+          const intensity = Math.min(0.8, 0.15 + Math.abs(pnl) / 5000);
+          td.style.backgroundColor = `rgba(255, 68, 68, ${intensity})`;
+          td.style.color = '#ffffff';
+        }
+      }
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+function renderTimingAnalysis() {
+  const headers = document.getElementById('hourlyHeatmapHeaders');
+  const body = document.getElementById('hourlyHeatmapBody');
+  if (!headers || !body) return;
+  
+  headers.innerHTML = '<th style="padding: 6px; text-align: left;">Day</th>';
+  for (let h = 0; h < 24; h++) {
+    const th = document.createElement('th');
+    th.textContent = String(h).padStart(2, '0');
+    th.className = 'text-center font-mono';
+    th.style.fontSize = '8px';
+    th.style.padding = '4px';
+    headers.appendChild(th);
+  }
+  
+  const closedLogs = STATE.tradeLogs.filter(log => 
+    (log.status === 'CLOSED' || log.status === 'SL_HIT' || log.status === 'TP2_HIT') && (log.opened_at || log.timestamp)
+  );
+  
+  const grid = Array.from({ length: 7 }, () => 
+    Array.from({ length: 24 }, () => ({ pnl: 0, warm: 0, trades: 0 }))
+  );
+  
+  const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  
+  const dayPnlSum = Array(7).fill(0);
+  const dayTradesCount = Array(7).fill(0);
+  
+  closedLogs.forEach(log => {
+    const timeToUse = log.opened_at || log.timestamp;
+    const { day, hour } = getBangkokDayAndHour(timeToUse);
+    
+    const pnlUsdt = parseFloat(log.pnl_usdt) || 0;
+    const pnlThb = parseFloat(log.pnl_thb) || (pnlUsdt * STATE.exchangeRate);
+    
+    grid[day][hour].pnl += pnlThb;
+    grid[day][hour].trades += 1;
+    
+    dayPnlSum[day] += pnlThb;
+    dayTradesCount[day] += 1;
+  });
+  
+  body.innerHTML = '';
+  for (let d = 0; d < 7; d++) {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid rgba(255, 255, 255, 0.02)';
+    
+    const tdDay = document.createElement('td');
+    tdDay.className = 'font-bold text-slate-400';
+    tdDay.textContent = daysOfWeek[d];
+    tdDay.style.padding = '6px';
+    tr.appendChild(tdDay);
+    
+    for (let h = 0; h < 24; h++) {
+      const td = document.createElement('td');
+      const cell = grid[d][h];
+      
+      td.style.padding = '0';
+      td.style.width = '20px';
+      td.style.height = '20px';
+      td.style.border = '1px solid var(--card-border)';
+      
+      if (cell.trades === 0) {
+        td.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+        td.setAttribute('title', `${daysOfWeek[d]} ${String(h).padStart(2, '0')}:00 — No trades`);
+      } else {
+        const avgPnl = cell.pnl / cell.trades;
+        td.setAttribute('title', `${daysOfWeek[d]} ${String(h).padStart(2, '0')}:00 — ${cell.trades} trades, avg ${avgPnl >= 0 ? '+' : ''}${Math.round(avgPnl)} THB`);
+        td.style.cursor = 'pointer';
+        
+        if (avgPnl > 0) {
+          const intensity = Math.min(0.9, 0.15 + avgPnl / 2000);
+          td.style.backgroundColor = `rgba(0, 255, 136, ${intensity})`;
+        } else if (avgPnl < 0) {
+          const intensity = Math.min(0.9, 0.15 + Math.abs(avgPnl) / 2000);
+          td.style.backgroundColor = `rgba(255, 68, 68, ${intensity})`;
+        } else {
+          td.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+        }
+      }
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  
+  renderTimingBarChart(dayPnlSum, dayTradesCount, daysOfWeek);
+}
+
+function renderTimingBarChart(dayPnlSum, dayTradesCount, daysOfWeek) {
+  const ctx = document.getElementById('timingBarChart').getContext('2d');
+  if (timingBarChartInstance) {
+    timingBarChartInstance.destroy();
+  }
+  
+  const avgPnlData = dayPnlSum.map((sum, i) => {
+    const count = dayTradesCount[i];
+    return count > 0 ? Math.round(sum / count) : 0;
+  });
+  
+  const backgroundColors = avgPnlData.map(val => val >= 0 ? 'rgba(0, 255, 136, 0.6)' : 'rgba(255, 68, 68, 0.6)');
+  const borderColors = avgPnlData.map(val => val >= 0 ? '#00ff88' : '#ff4444');
+  
+  timingBarChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: daysOfWeek,
+      datasets: [{
+        label: 'Avg PnL (THB)',
+        data: avgPnlData,
+        backgroundColor: backgroundColors,
+        borderColor: borderColors,
+        borderWidth: 1.5,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f0f11',
+          titleColor: '#9ca3af',
+          bodyColor: '#f3f4f6',
+          borderColor: '#2a2a32',
+          borderWidth: 1,
+          callbacks: {
+            label: function(context) {
+              const dayIndex = context.dataIndex;
+              const count = dayTradesCount[dayIndex];
+              return `Avg PnL: ${context.raw >= 0 ? '+' : ''}${context.raw} THB (${count} trades)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(42, 42, 50, 0.2)' },
+          ticks: { color: '#9ca3af', font: { size: 9 } }
+        },
+        y: {
+          grid: { color: 'rgba(42, 42, 50, 0.2)' },
+          ticks: { color: '#9ca3af', font: { size: 9 } }
+        }
+      }
+    }
+  });
+}
+
+function renderRiskMetricsPanel() {
+  const closedLogs = [...STATE.tradeLogs]
+    .filter(log => log.status === 'CLOSED' || log.status === 'SL_HIT' || log.status === 'TP2_HIT')
+    .reverse(); // oldest to newest
+  
+  const N = closedLogs.length;
+  
+  if (N === 0) {
+    document.getElementById('metricPanelProfitFactor').textContent = '—';
+    document.getElementById('metricPanelProfitFactor').className = 'panel-tile-value text-slate';
+    document.getElementById('metricPanelSharpe').textContent = '—';
+    document.getElementById('metricPanelSharpe').className = 'panel-tile-value text-slate';
+    document.getElementById('metricPanelMaxDrawdown').textContent = '—';
+    document.getElementById('metricPanelMaxDrawdown').className = 'panel-tile-value text-slate';
+    document.getElementById('metricPanelWinStreak').textContent = '—';
+    document.getElementById('metricPanelWinStreak').className = 'panel-tile-value text-slate';
+    document.getElementById('metricPanelLossStreak').textContent = '—';
+    document.getElementById('metricPanelLossStreak').className = 'panel-tile-value text-slate';
+    document.getElementById('metricPanelAvgDuration').textContent = '—';
+    document.getElementById('metricPanelAvgDuration').className = 'panel-tile-value text-slate';
+    return;
+  }
+  
+  let grossProfit = 0;
+  let grossLoss = 0;
+  let totalDurationMs = 0;
+  let returns = [];
+  
+  let baseline = CAPITAL_THB / STATE.exchangeRate;
+  let equity = baseline;
+  let peak = baseline;
+  let maxDd = 0;
+  
+  closedLogs.forEach(log => {
+    const pnl = parseFloat(log.pnl_usdt) || 0;
+    if (pnl > 0) {
+      grossProfit += pnl;
+    } else {
+      grossLoss += Math.abs(pnl);
+    }
+    
+    const size = parseFloat(log.position_size_usdt) || 100;
+    const retPct = (pnl / size) * 100;
+    returns.push(retPct);
+    
+    equity += pnl;
+    if (equity > peak) {
+      peak = equity;
+    }
+    const dd = ((peak - equity) / peak) * 100;
+    if (dd > maxDd) {
+      maxDd = dd;
+    }
+    
+    const openTime = new Date(log.opened_at || log.timestamp).getTime();
+    const closeTime = log.closed_at ? new Date(log.closed_at).getTime() : Date.now();
+    totalDurationMs += Math.max(0, closeTime - openTime);
+  });
+  
+  let pf = 1.0;
+  let pfColor = 'text-slate';
+  if (grossLoss === 0) {
+    pf = grossProfit > 0 ? 99.9 : 1.0;
+  } else {
+    pf = grossProfit / grossLoss;
+  }
+  if (pf > 1.5) pfColor = 'text-green';
+  else if (pf < 1.0) pfColor = 'text-red';
+  else pfColor = 'text-yellow';
+  
+  document.getElementById('metricPanelProfitFactor').textContent = `${pf.toFixed(2)}x`;
+  document.getElementById('metricPanelProfitFactor').className = `panel-tile-value ${pfColor}`;
+  
+  const mean = returns.reduce((a, b) => a + b, 0) / N;
+  let variance = 0;
+  if (N > 1) {
+    variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (N - 1);
+  }
+  const stdDev = Math.sqrt(variance);
+  let sharpe = 0;
+  if (stdDev > 0) {
+    sharpe = (mean / stdDev) * Math.sqrt(N);
+  }
+  
+  let sharpeColor = 'text-slate';
+  if (sharpe > 1.0) sharpeColor = 'text-green';
+  else if (sharpe < 0) sharpeColor = 'text-red';
+  else sharpeColor = 'text-yellow';
+  
+  document.getElementById('metricPanelSharpe').textContent = sharpe.toFixed(2);
+  document.getElementById('metricPanelSharpe').className = `panel-tile-value ${sharpeColor}`;
+  
+  let ddColor = 'text-green';
+  if (maxDd > 15) ddColor = 'text-red';
+  else if (maxDd > 8) ddColor = 'text-yellow';
+  
+  document.getElementById('metricPanelMaxDrawdown').textContent = `${maxDd.toFixed(2)}%`;
+  document.getElementById('metricPanelMaxDrawdown').className = `panel-tile-value ${ddColor}`;
+  
+  const streaks = calculateStreakMetrics();
+  document.getElementById('metricPanelWinStreak').textContent = streaks.maxWinStreak;
+  document.getElementById('metricPanelWinStreak').className = 'panel-tile-value text-green';
+  document.getElementById('metricPanelLossStreak').textContent = streaks.maxLossStreak;
+  document.getElementById('metricPanelLossStreak').className = 'panel-tile-value text-red';
+  
+  const avgDurMs = totalDurationMs / N;
+  const avgSec = Math.floor(avgDurMs / 1000);
+  let avgDurStr = '0m';
+  if (avgSec > 0) {
+    const days = Math.floor(avgSec / 86400);
+    const hours = Math.floor((avgSec % 86400) / 3600);
+    const mins = Math.floor((avgSec % 3600) / 60);
+    
+    if (days > 0) avgDurStr = `${days}d ${hours}h`;
+    else if (hours > 0) avgDurStr = `${hours}h ${mins}m`;
+    else avgDurStr = `${mins}m`;
+  }
+  
+  document.getElementById('metricPanelAvgDuration').textContent = avgDurStr;
+  document.getElementById('metricPanelAvgDuration').className = 'panel-tile-value text-blue';
+}
+
+async function sendTelegramAlert(message) {
+  const token = STATE.settings.telegramToken || '';
+  const chatId = STATE.settings.telegramChatId || '';
+  if (!token || !chatId) return;
+  
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message
+      })
+    });
+  } catch (err) {
+    console.error('Telegram notification failed:', err);
+  }
+}
+
+function checkPauseConditions() {
+  const now = new Date();
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const bangkokTime = new Date(utcMs + (3600000 * 7));
+  const bkkDateStr = bangkokTime.toISOString().split('T')[0];
+  
+  const limit = parseFloat(STATE.settings.dailyLossLimit) || 300;
+  let dailyPnl = 0;
+  
+  STATE.tradeLogs.forEach(log => {
+    if (log.closed_at) {
+      const closedDate = new Date(log.closed_at);
+      const utcClosedMs = closedDate.getTime() + (closedDate.getTimezoneOffset() * 60000);
+      const bkkClosed = new Date(utcClosedMs + (3600000 * 7));
+      const closedDateStr = bkkClosed.toISOString().split('T')[0];
+      
+      if (closedDateStr === bkkDateStr) {
+        dailyPnl += parseFloat(log.pnl_thb) || ((parseFloat(log.pnl_usdt) || 0) * STATE.exchangeRate);
+      }
+    }
+  });
+  
+  let isDailyLossLimitReached = false;
+  if (dailyPnl < 0 && Math.abs(dailyPnl) >= limit) {
+    isDailyLossLimitReached = true;
+    localStorage.setItem(`daily_loss_paused_${bkkDateStr}`, 'true');
+    
+    const notifyKey = `daily_loss_notified_${bkkDateStr}`;
+    if (localStorage.getItem(notifyKey) !== 'true') {
+      localStorage.setItem(notifyKey, 'true');
+      sendTelegramAlert(`⛔ Daily loss limit of ${limit} THB reached. Bot paused.`);
+    }
+  }
+  
+  const streaks = calculateStreakMetrics();
+  let isStreakPaused = localStorage.getItem('loss_streak_paused') === 'true';
+  
+  if (streaks.currentLossStreak >= 5 && !isStreakPaused) {
+    isStreakPaused = true;
+    localStorage.setItem('loss_streak_paused', 'true');
+    sendTelegramAlert(`🚨 5 consecutive losses. Bot auto-paused. Review required.`);
+  }
+  
+  if (streaks.currentLossStreak === 3) {
+    const notifyStreakKey = `loss_streak_3_notified_${STATE.tradeLogs[0]?.id}`;
+    if (localStorage.getItem(notifyStreakKey) !== 'true' && STATE.tradeLogs.length > 0) {
+      localStorage.setItem(notifyStreakKey, 'true');
+      sendTelegramAlert(`⚠️ 3 consecutive losses. Consider reviewing strategy.`);
+    }
+  }
+  
+  renderStatusBanners(isDailyLossLimitReached, bkkDateStr, streaks.currentLossStreak, isStreakPaused);
+}
+
+function renderStatusBanners(isDailyLossLimitReached, bkkDateStr, currentLossStreak, isStreakPaused) {
+  const container = document.getElementById('monitorBanners');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  if (isDailyLossLimitReached || localStorage.getItem(`daily_loss_paused_${bkkDateStr}`) === 'true') {
+    const banner = document.createElement('div');
+    banner.className = 'warning-banner warning-banner-red';
+    banner.innerHTML = `
+      <div class="warning-title-row" style="font-size: 0.8rem; font-weight: 700; display: flex; gap: 8px; align-items: center;">
+        <i class="fa-solid fa-ban"></i>
+        <span>🚫 Daily Loss Limit Reached. Auto-trade paused for today.</span>
+      </div>
+    `;
+    container.appendChild(banner);
+  }
+  
+  if (isStreakPaused || localStorage.getItem('loss_streak_paused') === 'true') {
+    const banner = document.createElement('div');
+    banner.className = 'warning-banner warning-banner-red';
+    banner.innerHTML = `
+      <div class="warning-title-row" style="font-size: 0.8rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span>🚨 5 consecutive losses. Bot auto-paused. Review required.</span>
+        </div>
+        <button onclick="resumeStreakPause(event)" class="btn btn-secondary-soft text-xs" style="padding: 4px 10px; border-radius: 6px; cursor: pointer; height: auto;">Resume Bot</button>
+      </div>
+    `;
+    container.appendChild(banner);
+  } else if (currentLossStreak >= 3) {
+    const banner = document.createElement('div');
+    banner.className = 'warning-banner warning-banner-orange';
+    banner.innerHTML = `
+      <div class="warning-title-row" style="font-size: 0.8rem; font-weight: 700; display: flex; gap: 8px; align-items: center;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span>⚠️ 3 consecutive losses. Consider reviewing strategy.</span>
+      </div>
+    `;
+    container.appendChild(banner);
+  }
+}
+
+function resumeStreakPause(e) {
+  e.preventDefault();
+  localStorage.removeItem('loss_streak_paused');
+  showToast('Streak auto-pause cleared. Bot resumed.', 'success');
+  checkPauseConditions();
+  updateRiskWarnings();
 }
