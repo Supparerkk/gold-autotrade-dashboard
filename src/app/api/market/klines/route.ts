@@ -5,6 +5,8 @@ export async function GET(request: NextRequest) {
   const symbol = searchParams.get('symbol') || 'PAXGUSDT';
   const interval = searchParams.get('interval') || '1h';
   const limit = searchParams.get('limit') || '24';
+  const startTime = searchParams.get('startTime');
+  const endTime = searchParams.get('endTime');
 
   const endpoints = [
     'https://api.binance.com',
@@ -18,7 +20,10 @@ export async function GET(request: NextRequest) {
   let lastError = null;
   for (const endpoint of endpoints) {
     try {
-      const res = await fetch(`${endpoint}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`, {
+      let url = `${endpoint}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      if (startTime) url += `&startTime=${startTime}`;
+      if (endTime) url += `&endTime=${endTime}`;
+      const res = await fetch(url, {
         next: { revalidate: 10 },
         signal: AbortSignal.timeout(4000)
       });

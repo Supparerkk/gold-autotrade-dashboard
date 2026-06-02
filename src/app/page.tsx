@@ -9,10 +9,12 @@ import RiskMetrics from '@/components/RiskMetrics';
 import PerformanceSummary from '@/components/PerformanceSummary';
 import TradeHistoryLog from '@/components/TradeHistoryLog';
 import SettingsPanel from '@/components/SettingsPanel';
-import { Bot, LineChart, History, Settings, Cpu, ShieldCheck } from 'lucide-react';
+import BacktestPanel from '@/components/BacktestPanel';
+import PaperTradingCard from '@/components/PaperTradingCard';
+import { Bot, LineChart, History, Settings, Cpu, ShieldCheck, FlaskConical } from 'lucide-react';
 
 function DashboardContent() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'backtest' | 'settings'>('dashboard');
   const { settings, exchangeRate, connectionStatus, lastPingTime, latency, pingStatus, botStatus, fngData, refreshAllData } = useTrade();
   const [pingAge, setPingAge] = useState<string>('Never');
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -81,7 +83,8 @@ function DashboardContent() {
         e.preventDefault();
         setActiveTab(prev => {
           if (prev === 'dashboard') return 'history';
-          if (prev === 'history') return 'settings';
+          if (prev === 'history') return 'backtest';
+          if (prev === 'backtest') return 'settings';
           return 'dashboard';
         });
       } else if (e.key === 'Escape') {
@@ -153,6 +156,17 @@ function DashboardContent() {
             >
               <History className="h-3.5 w-3.5" />
               Ledger Logs
+            </button>
+            <button
+              onClick={() => setActiveTab('backtest')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 ${
+                activeTab === 'backtest'
+                  ? 'bg-slate-800 text-cyan-400 shadow-md shadow-slate-950'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FlaskConical className="h-3.5 w-3.5" />
+              Backtest
             </button>
             <button
               onClick={() => setActiveTab('settings')}
@@ -237,12 +251,25 @@ function DashboardContent() {
 
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        {/* Paper Trading Banner */}
+        {settings.paperTradingEnabled && (
+          <div className="mb-6 rounded-2xl border border-dashed border-orange-800/50 bg-orange-950/10 p-3 flex items-center gap-3 animate-in fade-in duration-300">
+            <span className="text-lg">📋</span>
+            <div className="flex-1">
+              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">Paper Trading Mode Active</span>
+              <p className="text-[10px] text-orange-400/60 mt-0.5">Simulating fills with live prices. No real orders are being placed.</p>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/20 text-[10px] font-bold text-orange-400 uppercase tracking-wider animate-pulse">PAPER</span>
+          </div>
+        )}
+
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column (8 cols): Market statistics, active trade, risk */}
+            {/* Left Column (7 cols): Market statistics, active trade, risk */}
             <div className="lg:col-span-7 space-y-8">
               <MarketOverview />
               <ActivePosition />
+              {settings.paperTradingEnabled && <PaperTradingCard />}
               <RiskMetrics />
             </div>
 
@@ -258,6 +285,10 @@ function DashboardContent() {
             <PerformanceSummary />
             <TradeHistoryLog />
           </div>
+        )}
+
+        {activeTab === 'backtest' && (
+          <BacktestPanel />
         )}
 
         {activeTab === 'settings' && (

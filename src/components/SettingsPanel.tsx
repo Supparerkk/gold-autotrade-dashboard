@@ -22,6 +22,7 @@ export default function SettingsPanel() {
   const [manualRate, setManualRate] = useState(settings.manualExchangeRate.toString());
 
   const [isSimulated, setIsSimulated] = useState(settings.isSimulatedMode);
+  const [paperTradingEnabled, setPaperTradingEnabled] = useState(false);
 
   // Notification Preferences Toggles
   const [alertTradeOpened, setAlertTradeOpened] = useState(settings.alertTradeOpened);
@@ -48,6 +49,7 @@ export default function SettingsPanel() {
     setUseManualRate(settings.useManualExchangeRate);
     setManualRate(settings.manualExchangeRate.toString());
     setIsSimulated(settings.isSimulatedMode);
+    setPaperTradingEnabled(settings.paperTradingEnabled || false);
 
     setAlertTradeOpened(settings.alertTradeOpened);
     setAlertStopLossHit(settings.alertStopLossHit);
@@ -186,6 +188,7 @@ export default function SettingsPanel() {
         useManualExchangeRate: useManualRate,
         manualExchangeRate: isNaN(parsedRate) ? settings.manualExchangeRate : parsedRate,
         isSimulatedMode: isSimulated,
+        paperTradingEnabled,
         webhookSecret: webhookSecret.trim(),
         telegramToken: telegramToken.trim(),
         telegramChatId: telegramChatId.trim(),
@@ -273,6 +276,27 @@ export default function SettingsPanel() {
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500 peer-checked:after:bg-slate-950" />
+            </label>
+          </div>
+        </div>
+
+        {/* Paper Trading Mode Toggle */}
+        <div className="rounded-xl border border-dashed border-orange-800/50 bg-orange-950/10 p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider block">📋 Paper Trading Mode</span>
+              <p className="text-xs text-slate-400 mt-1 max-w-md">
+                Runs alongside real market data. Simulates fills using live prices without sending real orders. Paper trade history is stored separately.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer mt-1">
+              <input
+                type="checkbox"
+                checked={paperTradingEnabled}
+                onChange={(e) => setPaperTradingEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-slate-950" />
             </label>
           </div>
         </div>

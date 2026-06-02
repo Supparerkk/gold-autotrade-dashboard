@@ -46,6 +46,7 @@ export interface Settings {
   manualExchangeRate: number;
   useManualExchangeRate: boolean;
   isSimulatedMode: boolean;
+  paperTradingEnabled: boolean;
   webhookSecret?: string;
   telegramToken?: string;
   telegramChatId?: string;
@@ -134,6 +135,7 @@ const defaultSettings: Settings = {
   manualExchangeRate: 36.5,
   useManualExchangeRate: false,
   isSimulatedMode: false, // Default to false to connect to your live Hostinger n8n instance
+  paperTradingEnabled: false,
   webhookSecret: '',
   telegramToken: '',
   telegramChatId: '',
